@@ -5,7 +5,7 @@
     <groupId>org.asymetrik.modular</groupId>
     <artifactId>root</artifactId>
     <name>modular</name>
-    <version>0.0.2</version>
+    <version>0.0.3-SNAPSHOT</version>
     <packaging>pom</packaging>
     <description>this project aims to permit to easily define submodules</description>
     <url>https://github.com/fblan/modular</url>
