@@ -95,6 +95,7 @@ public class ModularVerifier {
 	public record ExportViolation(
 		String consumerModuleName,
 		String consumerPackage,
+		String consumerClass,
 		String providerModuleName,
 		String providerPackage,
 		String violatingClass,
@@ -105,11 +106,13 @@ public class ModularVerifier {
 			return String.format(
 				"Export violation detected:%n" +
 				"  Consumer: '%s' (%s)%n" +
+				"  Consumer class: %s%n" +
 				"  Provider: '%s' (%s)%n" +
 				"  Violating class: %s%n" +
 				"  Package: %s (not exported)%n" +
 				"  Suggestion: Module '%s' should export package '%s' or '%s' should not use this class",
 				consumerModuleName, consumerPackage,
+				consumerClass,
 				providerModuleName, providerPackage,
 				violatingClass, violatingClassPackage,
 				providerModuleName, violatingClassPackage, consumerModuleName
@@ -204,6 +207,7 @@ public class ModularVerifier {
 							return new ExportViolation(
 								consumerModule.name(),
 								consumerModule.packageName(),
+								clazz.getFullName(),
 								providerModule.get().name(),
 								providerModule.get().packageName(),
 								dependency.getFullName(),

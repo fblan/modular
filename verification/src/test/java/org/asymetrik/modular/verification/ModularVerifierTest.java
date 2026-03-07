@@ -99,6 +99,8 @@ class ModularVerifierTest {
 		Assertions.assertThat(violation.consumerModuleName()).isEqualTo("moduleUsingNotExported");
 		Assertions.assertThat(violation.providerModuleName()).isEqualTo("moduleA");
 		Assertions.assertThat(violation.violatingClass()).contains("ClassNotExported");
+		Assertions.assertThat(violation.consumerClass())
+			.contains("IllegalConsumerClass");
 	}
 
 }
