@@ -119,14 +119,35 @@ if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
   exit 0
 fi
 
-# ── 7. Release ─────────────────────────────────────────────────────────────────
-echo -e "\n${BOLD}Preparing release...${NC}"
-mvn release:prepare \
-  -DreleaseVersion="$RELEASE_VERSION" \
-  -DdevelopmentVersion="$NEXT_VERSION" \
-  -Dresume=false
+# ── 7. Set release version ─────────────────────────────────────────────────────
+echo -e "\n${BOLD}Setting release version to $RELEASE_VERSION...${NC}"
+mvn versions:set -DnewVersion="$RELEASE_VERSION" -DgenerateBackupPoms=false
+ok "POM versions updated to $RELEASE_VERSION"
 
-echo -e "\n${BOLD}Performing release...${NC}"
-mvn release:perform -Pdeployment
+# ── 8. Build and deploy ────────────────────────────────────────────────────────
+echo -e "\n${BOLD}Building and deploying $RELEASE_VERSION...${NC}"
+if ! mvn clean deploy -Pdeployment; then
+  echo -e "\n${RED}${BOLD}Build failed — reverting POM version changes.${NC}\n"
+  git restore .
+  exit 1
+fi
+ok "Artifacts deployed to Maven Central"
+
+# ── 9. Commit, tag, push release ──────────────────────────────────────────────
+echo -e "\n${BOLD}Tagging and pushing release...${NC}"
+git add -A
+git commit -m "[release] $RELEASE_VERSION"
+git tag -a "v$RELEASE_VERSION" -m "Release $RELEASE_VERSION"
+git push origin "$BRANCH"
+git push origin "v$RELEASE_VERSION"
+ok "Release $RELEASE_VERSION committed, tagged, and pushed"
+
+# ── 10. Bump to next development version ──────────────────────────────────────
+echo -e "\n${BOLD}Bumping to $NEXT_VERSION...${NC}"
+mvn versions:set -DnewVersion="$NEXT_VERSION" -DgenerateBackupPoms=false
+git add -A
+git commit -m "[release] prepare next development iteration $NEXT_VERSION"
+git push origin "$BRANCH"
+ok "Next dev version $NEXT_VERSION committed and pushed"
 
 echo -e "\n${GREEN}${BOLD}Release $RELEASE_VERSION successfully published to Maven Central!${NC}\n"

@@ -13,6 +13,7 @@
     <modules>
         <module>api</module>
         <module>verification</module>
+        <module>processor</module>
     </modules>
 
     <developers>
