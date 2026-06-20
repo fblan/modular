@@ -103,6 +103,45 @@ class ModuleAnnotationProcessorTest {
         assertThat(result).filteredOn(d -> d.getKind() == ERROR).isEmpty();
     }
 
+    @Test
+    void usingExportedClass_producesNoErrors() {
+        var result = compile(
+            packageInfo("com.example.producer", "producer", "com.example.producer.exported"),
+            classSource("com.example.producer.exported.ExportedClass", "com.example.producer.exported", "ExportedClass"),
+            packageInfo("com.example.consumer", "consumer", "."),
+            classSourceWithField(
+                "com.example.consumer.ConsumerClass", "com.example.consumer", "ConsumerClass",
+                "com.example.producer.exported.ExportedClass", "ExportedClass"
+            )
+        );
+
+        assertThat(result).filteredOn(d -> d.getKind() == ERROR).isEmpty();
+    }
+
+    @Test
+    void usingNonExportedClass_producesExportViolationError() {
+        var result = compile(
+            packageInfo("com.example.producer", "producer", "com.example.producer.exported"),
+            classSource("com.example.producer.InternalClass", "com.example.producer", "InternalClass"),
+            packageInfo("com.example.consumer", "consumer", "."),
+            classSourceWithField(
+                "com.example.consumer.ConsumerClass", "com.example.consumer", "ConsumerClass",
+                "com.example.producer.InternalClass", "InternalClass"
+            )
+        );
+
+        assertThat(result)
+            .filteredOn(d -> d.getKind() == ERROR)
+            .hasSize(1)
+            .first()
+            .extracting(d -> d.getMessage(null))
+            .asString()
+            .contains("Export violation")
+            .contains("'consumer'")
+            .contains("'producer'")
+            .contains("com.example.producer");
+    }
+
     // --- helpers ---
 
     private static JavaFileObject packageInfo(String pkg, String moduleName, String... exports) {
@@ -120,6 +159,15 @@ class ModuleAnnotationProcessorTest {
 
     private static JavaFileObject classSource(String fqn, String pkg, String simpleName) {
         String source = String.format("package %s;%npublic class %s {}%n", pkg, simpleName);
+        return inMemorySource(fqn, source);
+    }
+
+    private static JavaFileObject classSourceWithField(String fqn, String pkg, String simpleName,
+                                                       String fieldTypeFqn, String fieldTypeSimpleName) {
+        String source = String.format(
+            "package %s;%nimport %s;%npublic class %s { %s dep; }%n",
+            pkg, fieldTypeFqn, simpleName, fieldTypeSimpleName
+        );
         return inMemorySource(fqn, source);
     }
 
