@@ -142,6 +142,198 @@ class ModuleAnnotationProcessorTest {
             .contains("com.example.producer");
     }
 
+    @Test
+    void fullyQualifiedLocalVariableWithoutImport_producesExportViolationError() {
+        var result = compile(
+            packageInfo("com.example.producer", "producer", "com.example.producer.exported"),
+            classSource("com.example.producer.InternalClass", "com.example.producer", "InternalClass"),
+            packageInfo("com.example.consumer", "consumer", "."),
+            classSourceWithFullyQualifiedLocalVariable(
+                "com.example.consumer.ConsumerClass", "com.example.consumer", "ConsumerClass",
+                "com.example.producer.InternalClass"
+            )
+        );
+
+        assertThat(result)
+            .filteredOn(d -> d.getKind() == ERROR)
+            .hasSize(1)
+            .first()
+            .extracting(d -> d.getMessage(null))
+            .asString()
+            .contains("Export violation")
+            .contains("com.example.producer.InternalClass")
+            .contains("type/member reference in method body");
+    }
+
+    @Test
+    void explicitlyImportedNonExportedType_producesExportViolationErrorEvenWithoutUsage() {
+        var result = compile(
+            packageInfo("com.example.producer", "producer", "com.example.producer.exported"),
+            classSource("com.example.producer.InternalClass", "com.example.producer", "InternalClass"),
+            packageInfo("com.example.consumer", "consumer", "."),
+            classSourceWithUnusedImport(
+                "com.example.consumer.ConsumerClass", "com.example.consumer", "ConsumerClass",
+                "com.example.producer.InternalClass"
+            )
+        );
+
+        assertThat(result)
+            .filteredOn(d -> d.getKind() == ERROR)
+            .hasSize(1)
+            .first()
+            .extracting(d -> d.getMessage(null))
+            .asString()
+            .contains("Export violation")
+            .contains("com.example.producer.InternalClass")
+            .contains("import declaration");
+    }
+
+    @Test
+    void staticImportedCallWithoutQualifierOrLocalVariable_producesExportViolationError() {
+        var result = compile(
+            packageInfo("com.example.producer", "producer", "com.example.producer.exported"),
+            classSourceWithStaticMethod("com.example.producer.InternalClass", "com.example.producer", "InternalClass", "doThing"),
+            packageInfo("com.example.consumer", "consumer", "."),
+            classSourceWithStaticImportCall(
+                "com.example.consumer.ConsumerClass", "com.example.consumer", "ConsumerClass",
+                "com.example.producer.InternalClass", "doThing"
+            )
+        );
+
+        assertThat(result)
+            .filteredOn(d -> d.getKind() == ERROR)
+            .hasSize(1)
+            .first()
+            .extracting(d -> d.getMessage(null))
+            .asString()
+            .contains("Export violation")
+            .contains("com.example.producer.InternalClass");
+    }
+
+    @Test
+    void wildcardImportAllowingNonExportedType_isFlaggedOnTheImportItself() {
+        var result = compile(
+            packageInfo("com.example.producer", "producer", "com.example.producer.exported"),
+            classSource("com.example.producer.InternalClass", "com.example.producer", "InternalClass"),
+            packageInfo("com.example.consumer", "consumer", "."),
+            classSourceWithWildcardImportAndLocalVariable(
+                "com.example.consumer.ConsumerClass", "com.example.consumer", "ConsumerClass",
+                "com.example.producer", "InternalClass"
+            )
+        );
+
+        assertThat(result)
+            .filteredOn(d -> d.getKind() == ERROR)
+            .hasSize(1)
+            .first()
+            .extracting(d -> d.getMessage(null))
+            .asString()
+            .contains("wildcard import")
+            .contains("com.example.producer.*")
+            .contains("com.example.producer.InternalClass");
+    }
+
+    @Test
+    void treeScanDisabled_stillDetectsSignatureViolation_butNotBodyOnlyViolation() {
+        List<String> disableTreeScan = List.of("-A" + "org.asymetrik.modular.treeScan=false");
+
+        var fieldResult = compile(disableTreeScan,
+            packageInfo("com.example.producer", "producer", "com.example.producer.exported"),
+            classSource("com.example.producer.InternalClass", "com.example.producer", "InternalClass"),
+            packageInfo("com.example.consumer", "consumer", "."),
+            classSourceWithField(
+                "com.example.consumer.ConsumerClass", "com.example.consumer", "ConsumerClass",
+                "com.example.producer.InternalClass", "InternalClass"
+            )
+        );
+        assertThat(fieldResult).filteredOn(d -> d.getKind() == ERROR).hasSize(1);
+
+        var bodyOnlyResult = compile(disableTreeScan,
+            packageInfo("com.example.producer", "producer", "com.example.producer.exported"),
+            classSource("com.example.producer.InternalClass", "com.example.producer", "InternalClass"),
+            packageInfo("com.example.consumer", "consumer", "."),
+            classSourceWithFullyQualifiedLocalVariable(
+                "com.example.consumer.ConsumerClass", "com.example.consumer", "ConsumerClass",
+                "com.example.producer.InternalClass"
+            )
+        );
+        assertThat(bodyOnlyResult).filteredOn(d -> d.getKind() == ERROR).isEmpty();
+    }
+
+    @Test
+    void stringLiteralMatchingNonExportedType_producesExportViolationError() {
+        var result = compile(
+            packageInfo("com.example.producer", "producer", "com.example.producer.exported"),
+            classSource("com.example.producer.InternalClass", "com.example.producer", "InternalClass"),
+            packageInfo("com.example.consumer", "consumer", "."),
+            classSourceWithStringLiteral(
+                "com.example.consumer.ConsumerClass", "com.example.consumer", "ConsumerClass",
+                "com.example.producer.InternalClass"
+            )
+        );
+
+        assertThat(result)
+            .filteredOn(d -> d.getKind() == ERROR)
+            .hasSize(1)
+            .first()
+            .extracting(d -> d.getMessage(null))
+            .asString()
+            .contains("Export violation")
+            .contains("com.example.producer.InternalClass")
+            .contains("string literal reference");
+    }
+
+    @Test
+    void unrelatedStringLiteral_producesNoErrors() {
+        var result = compile(
+            packageInfo("com.example.producer", "producer", "com.example.producer.exported"),
+            classSource("com.example.producer.InternalClass", "com.example.producer", "InternalClass"),
+            packageInfo("com.example.consumer", "consumer", "."),
+            classSourceWithStringLiteral(
+                "com.example.consumer.ConsumerClass", "com.example.consumer", "ConsumerClass",
+                "some/random/path"
+            )
+        );
+
+        assertThat(result).filteredOn(d -> d.getKind() == ERROR).isEmpty();
+    }
+
+    @Test
+    void localVariableReferencingExportedType_producesNoErrors() {
+        var result = compile(
+            packageInfo("com.example.producer", "producer", "com.example.producer.exported"),
+            classSource("com.example.producer.exported.ExportedClass", "com.example.producer.exported", "ExportedClass"),
+            packageInfo("com.example.consumer", "consumer", "."),
+            classSourceWithLocalVariable(
+                "com.example.consumer.ConsumerClass", "com.example.consumer", "ConsumerClass",
+                "com.example.producer.exported.ExportedClass", "ExportedClass"
+            )
+        );
+
+        assertThat(result).filteredOn(d -> d.getKind() == ERROR).isEmpty();
+    }
+
+    @Test
+    void genericLocalVariableTypeArgumentReferencingNonExportedType_producesExportViolationError() {
+        var result = compile(
+            packageInfo("com.example.producer", "producer", "com.example.producer.exported"),
+            classSource("com.example.producer.InternalClass", "com.example.producer", "InternalClass"),
+            packageInfo("com.example.consumer", "consumer", "."),
+            classSourceWithGenericLocalVariable(
+                "com.example.consumer.ConsumerClass", "com.example.consumer", "ConsumerClass",
+                "com.example.producer.InternalClass"
+            )
+        );
+
+        assertThat(result)
+            .filteredOn(d -> d.getKind() == ERROR)
+            .hasSize(1)
+            .first()
+            .extracting(d -> d.getMessage(null))
+            .asString()
+            .contains("com.example.producer.InternalClass");
+    }
+
     // --- helpers ---
 
     private static JavaFileObject packageInfo(String pkg, String moduleName, String... exports) {
@@ -171,6 +363,79 @@ class ModuleAnnotationProcessorTest {
         return inMemorySource(fqn, source);
     }
 
+    private static JavaFileObject classSourceWithLocalVariable(String fqn, String pkg, String simpleName,
+                                                                String depTypeFqn, String depTypeSimpleName) {
+        String source = String.format(
+            "package %s;%nimport %s;%npublic class %s { void run() { %s dep = new %s(); } }%n",
+            pkg, depTypeFqn, simpleName, depTypeSimpleName, depTypeSimpleName
+        );
+        return inMemorySource(fqn, source);
+    }
+
+    private static JavaFileObject classSourceWithGenericLocalVariable(String fqn, String pkg, String simpleName,
+                                                                       String depTypeFqn) {
+        String source = String.format(
+            "package %s;%nimport java.util.ArrayList;%nimport java.util.List;%n" +
+            "public class %s { void run() { List<%s> deps = new ArrayList<>(); } }%n",
+            pkg, simpleName, depTypeFqn
+        );
+        return inMemorySource(fqn, source);
+    }
+
+    private static JavaFileObject classSourceWithStringLiteral(String fqn, String pkg, String simpleName,
+                                                                String literal) {
+        String source = String.format(
+            "package %s;%npublic class %s { void run() { String name = \"%s\"; } }%n",
+            pkg, simpleName, literal
+        );
+        return inMemorySource(fqn, source);
+    }
+
+    private static JavaFileObject classSourceWithFullyQualifiedLocalVariable(String fqn, String pkg, String simpleName,
+                                                                              String depTypeFqn) {
+        String source = String.format(
+            "package %s;%npublic class %s { void run() { %s dep = new %s(); } }%n",
+            pkg, simpleName, depTypeFqn, depTypeFqn
+        );
+        return inMemorySource(fqn, source);
+    }
+
+    private static JavaFileObject classSourceWithUnusedImport(String fqn, String pkg, String simpleName,
+                                                               String depTypeFqn) {
+        String source = String.format(
+            "package %s;%nimport %s;%npublic class %s { }%n",
+            pkg, depTypeFqn, simpleName
+        );
+        return inMemorySource(fqn, source);
+    }
+
+    private static JavaFileObject classSourceWithStaticMethod(String fqn, String pkg, String simpleName,
+                                                               String methodName) {
+        String source = String.format(
+            "package %s;%npublic class %s { public static void %s() { } }%n",
+            pkg, simpleName, methodName
+        );
+        return inMemorySource(fqn, source);
+    }
+
+    private static JavaFileObject classSourceWithStaticImportCall(String fqn, String pkg, String simpleName,
+                                                                   String depTypeFqn, String methodName) {
+        String source = String.format(
+            "package %s;%nimport static %s.%s;%npublic class %s { void run() { %s(); } }%n",
+            pkg, depTypeFqn, methodName, simpleName, methodName
+        );
+        return inMemorySource(fqn, source);
+    }
+
+    private static JavaFileObject classSourceWithWildcardImportAndLocalVariable(String fqn, String pkg, String simpleName,
+                                                                                 String depPkg, String depTypeSimpleName) {
+        String source = String.format(
+            "package %s;%nimport %s.*;%npublic class %s { void run() { %s dep = new %s(); } }%n",
+            pkg, depPkg, simpleName, depTypeSimpleName, depTypeSimpleName
+        );
+        return inMemorySource(fqn, source);
+    }
+
     private static JavaFileObject inMemorySource(String fqn, String source) {
         URI uri = URI.create("string:///" + fqn.replace('.', '/') + ".java");
         return new SimpleJavaFileObject(uri, JavaFileObject.Kind.SOURCE) {
@@ -182,14 +447,19 @@ class ModuleAnnotationProcessorTest {
     }
 
     private List<javax.tools.Diagnostic<? extends JavaFileObject>> compile(JavaFileObject... sources) {
+        return compile(List.of(), sources);
+    }
+
+    private List<javax.tools.Diagnostic<? extends JavaFileObject>> compile(List<String> extraOptions, JavaFileObject... sources) {
         JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
         DiagnosticCollector<JavaFileObject> collector = new DiagnosticCollector<>();
         try (StandardJavaFileManager fileManager = compiler.getStandardFileManager(collector, null, null)) {
-            List<String> options = List.of(
+            List<String> options = new java.util.ArrayList<>(List.of(
                 "-classpath", System.getProperty("java.class.path"),
                 "--release", "21",
                 "-proc:only"
-            );
+            ));
+            options.addAll(extraOptions);
             JavaCompiler.CompilationTask task = compiler.getTask(
                 null, fileManager, collector, options, null, List.of(sources)
             );
