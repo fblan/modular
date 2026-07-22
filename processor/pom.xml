@@ -4,7 +4,7 @@
     <parent>
         <groupId>org.asymetrik.modular</groupId>
         <artifactId>root</artifactId>
-        <version>0.0.5-SNAPSHOT</version>
+        <version>0.0.5</version>
     </parent>
     <artifactId>processor</artifactId>
     <name>Modular Annotation Processor</name>
@@ -12,7 +12,7 @@
         <dependency>
             <groupId>org.asymetrik.modular</groupId>
             <artifactId>api</artifactId>
-            <version>0.0.5-SNAPSHOT</version>
+            <version>0.0.5</version>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
