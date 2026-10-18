@@ -343,7 +343,7 @@ class ModuleAnnotationProcessorTest {
         String source = String.format(
             "@Module(name = \"%s\", exports = {%s})%n" +
             "package %s;%n" +
-            "import org.asymetrik.modular.api.Module;%n",
+            "import org.asymetrik.modular.annotations.Module;%n",
             moduleName, exportsLiteral, pkg
         );
         return inMemorySource(pkg + ".package-info", source);

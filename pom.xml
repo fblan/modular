@@ -11,7 +11,7 @@
     <url>https://github.com/fblan/modular</url>
 
     <modules>
-        <module>api</module>
+        <module>annotations</module>
         <module>verification</module>
         <module>processor</module>
     </modules>

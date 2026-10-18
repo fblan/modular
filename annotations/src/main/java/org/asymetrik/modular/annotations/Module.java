@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.asymetrik.modular.api;
+package org.asymetrik.modular.annotations;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Target;

@@ -6,8 +6,8 @@
         <artifactId>root</artifactId>
         <version>0.0.6-SNAPSHOT</version>
     </parent>
-    <artifactId>api</artifactId>
-    <name>Modular Api</name>
+    <artifactId>annotations</artifactId>
+    <name>Modular Annotations</name>
     <properties>
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
