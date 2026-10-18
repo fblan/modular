@@ -14,6 +14,7 @@
         <module>annotations</module>
         <module>verification</module>
         <module>processor</module>
+        <module>sample-fizzbuzz</module>
     </modules>
 
     <developers>
@@ -104,6 +105,9 @@
                             <publishingServerId>central</publishingServerId>
                             <autoPublish>true</autoPublish>
                             <waitUntil>uploaded</waitUntil>
+                            <excludeArtifacts>
+                                <artifact>sample-fizzbuzz</artifact>
+                            </excludeArtifacts>
                         </configuration>
                     </plugin>
                 </plugins>

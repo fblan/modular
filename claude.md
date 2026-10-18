@@ -49,10 +49,17 @@ modular/
 │       └── org/asymetryk/modular/annotations/
 │           └── Module.java    # @Module annotation definition
 │
-└── verification/          # Verification module
+├── verification/          # Verification module
+│   └── src/main/java/
+│       └── org/asymetryk/modular/verification/
+│           └── ModularVerifier.java  # ArchUnit-based verifier
+│
+└── sample-fizzbuzz/       # Sample FizzBuzz app to play with modular (not published)
     └── src/main/java/
-        └── org/asymetryk/modular/verification/
-            └── ModularVerifier.java  # ArchUnit-based verifier
+        └── org/asymetrik/modular/sample/fizzbuzz/
+            ├── rules/     # @Module "rules" (exports "."; rules.internal is hidden)
+            ├── engine/    # @Module "engine" (exports ".")
+            └── app/       # @Module "app" (exports nothing) - FizzBuzzApp main
 ```
 
 ## Core Concepts
@@ -138,6 +145,8 @@ mvn test -pl verification
 - `pom.xml` - Parent POM defining Java 21 and modules
 - `annotations/pom.xml` - Annotations module POM (minimal, just annotation)
 - `verification/pom.xml` - Verification module POM with ArchUnit dependency
+- `sample-fizzbuzz/pom.xml` - Sample app POM; shows how to enable the processor via `annotationProcessorPaths` (required on JDK 23+), excluded from Maven Central publishing in the root POM
+- `sample-fizzbuzz/README.md` - How to run the sample and experiments that trigger each violation
 - `verification/src/main/java/org/asymetryk/modular/verification/ModularVerifier.java:26` - Main verification logic (currently stubbed)
 - `verification/src/test/java/org/asymetryk/modular/verification/ModularVerifierTest.java` - Test cases showing intended behavior
 

@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.asymetrik.modular</groupId>
+        <artifactId>root</artifactId>
+        <version>0.0.6-SNAPSHOT</version>
+    </parent>
+    <artifactId>sample-fizzbuzz</artifactId>
+    <name>Modular Sample FizzBuzz</name>
+    <description>A small FizzBuzz application to play with modular</description>
+    <dependencies>
+        <dependency>
+            <groupId>org.asymetrik.modular</groupId>
+            <artifactId>annotations</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- Not needed at runtime: only listed so the reactor builds the processor before this module. -->
+        <dependency>
+            <groupId>org.asymetrik.modular</groupId>
+            <artifactId>processor</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+    <properties>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <!-- Since JDK 23, javac no longer discovers processors on the classpath implicitly. -->
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.asymetrik.modular</groupId>
+                            <artifactId>processor</artifactId>
+                            <version>${project.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
