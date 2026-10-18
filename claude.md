@@ -23,6 +23,12 @@ Regularly suggest improvements to keep this documentation accurate and helpful.
 5. Update test cases as specified in the document
 6. Mark the specification status as "Implemented" when complete
 
+**Git Workflow**: Never commit directly to `main`. For every change:
+1. Start from an up-to-date `main` and create a feature branch: `git checkout main && git pull && git checkout -b feature/<short-kebab-description>`
+2. Use one branch per GitHub issue, and reference it in the commit message (`Closes #<n>`)
+3. Run `mvn clean install` and make sure all tests pass before committing
+4. Push the branch and open a pull request into `main`
+
 ---
 
 ## Technology Stack
