@@ -44,9 +44,9 @@ Regularly suggest improvements to keep this documentation accurate and helpful.
 ### Multi-Module Maven Project
 ```
 modular/
-├── api/                    # Core API module
+├── annotations/            # Annotations module
 │   └── src/main/java/
-│       └── org/asymetryk/modular/api/
+│       └── org/asymetryk/modular/annotations/
 │           └── Module.java    # @Module annotation definition
 │
 └── verification/          # Verification module
@@ -58,7 +58,7 @@ modular/
 ## Core Concepts
 
 ### @Module Annotation
-Located in `api/src/main/java/org/asymetryk/modular/api/Module.java`
+Located in `annotations/src/main/java/org/asymetryk/modular/annotations/Module.java`
 
 - **Target**: Package-level annotation (ElementType.PACKAGE)
 - **Attributes**:
@@ -70,7 +70,7 @@ Located in `api/src/main/java/org/asymetryk/modular/api/Module.java`
 @Module(name="mymodule", exports = {"."})
 package com.example.mypackage;
 
-import org.asymetryk.modular.api.Module;
+import org.asymetryk.modular.annotations.Module;
 ```
 
 ### ModularVerifier
@@ -103,7 +103,7 @@ Based on test cases in `verification/src/test/java/`:
 mvn clean install
 
 # Build specific module
-mvn clean install -pl api
+mvn clean install -pl annotations
 mvn clean install -pl verification
 
 # Run tests
@@ -136,7 +136,7 @@ mvn test -pl verification
 
 ## Key Files to Know
 - `pom.xml` - Parent POM defining Java 21 and modules
-- `api/pom.xml` - API module POM (minimal, just annotation)
+- `annotations/pom.xml` - Annotations module POM (minimal, just annotation)
 - `verification/pom.xml` - Verification module POM with ArchUnit dependency
 - `verification/src/main/java/org/asymetryk/modular/verification/ModularVerifier.java:26` - Main verification logic (currently stubbed)
 - `verification/src/test/java/org/asymetryk/modular/verification/ModularVerifierTest.java` - Test cases showing intended behavior

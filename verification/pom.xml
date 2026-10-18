@@ -11,7 +11,7 @@
     <dependencies>
         <dependency>
             <groupId>org.asymetrik.modular</groupId>
-            <artifactId>api</artifactId>
+            <artifactId>annotations</artifactId>
             <version>0.0.6-SNAPSHOT</version>
         </dependency>
         <dependency>

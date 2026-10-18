@@ -52,9 +52,9 @@ import com.sun.source.util.TreePath;
 import com.sun.source.util.TreePathScanner;
 import com.sun.source.util.Trees;
 
-import org.asymetrik.modular.api.Module;
+import org.asymetrik.modular.annotations.Module;
 
-@SupportedAnnotationTypes("org.asymetrik.modular.api.Module")
+@SupportedAnnotationTypes("org.asymetrik.modular.annotations.Module")
 @SupportedOptions(ModuleAnnotationProcessor.TREE_SCAN_OPTION)
 @SupportedSourceVersion(SourceVersion.RELEASE_21)
 public class ModuleAnnotationProcessor extends AbstractProcessor {
