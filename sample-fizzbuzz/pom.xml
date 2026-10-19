@@ -22,6 +22,13 @@
             <version>${project.version}</version>
             <scope>provided</scope>
         </dependency>
+        <!-- @Req is only read at compile time, by the requirement processor. -->
+        <dependency>
+            <groupId>org.asymetrik.modular</groupId>
+            <artifactId>specification</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
     </dependencies>
     <properties>
         <maven.compiler.source>21</maven.compiler.source>
@@ -39,6 +46,11 @@
                         <path>
                             <groupId>org.asymetrik.modular</groupId>
                             <artifactId>processor</artifactId>
+                            <version>${project.version}</version>
+                        </path>
+                        <path>
+                            <groupId>org.asymetrik.modular</groupId>
+                            <artifactId>specification</artifactId>
                             <version>${project.version}</version>
                         </path>
                     </annotationProcessorPaths>

@@ -51,6 +51,12 @@ modular/
 │           ├── ExternalModule.java  # @ExternalModule: virtual module for packages outside modules
 │           └── ExternalModules.java # Container for repeated @ExternalModule
 │
+├── specification/         # EARS requirements on modules (annotation + its own processor)
+│   └── src/main/java/
+│       └── org/asymetrik/modular/specification/
+│           ├── Req.java, Reqs.java              # @Req (repeatable) and its container
+│           └── processor/RequirementProcessor.java
+│
 ├── verification/          # Verification module
 │   └── src/main/java/
 │       └── org/asymetryk/modular/verification/
@@ -96,6 +102,23 @@ Located in `annotations/src/main/java/org/asymetrik/modular/annotations/External
 package com.example.modules;
 ```
 
+### @Req Annotation (specification module)
+Located in `specification/src/main/java/org/asymetrik/modular/specification/Req.java`
+
+- **Target**: Package-level, repeatable (container: `@Reqs`), only on a `@Module` package
+- **Attributes**: `value()` - one requirement sentence in EARS format; `id()` (default `""`) - unique when set
+- **Checked by** `RequirementProcessor` (same jar, enabled through `annotationProcessorPaths`): `@Req` is next to
+  `@Module`, the sentence is EARS (ubiquitous, `When`, `While`, `If …, then`, `Where`, or combined clauses), its
+  subject is the module (`the <module name> shall`, ignoring case), and ids are unique within the compilation
+- Reads `@Module` by qualified name: `specification` does not depend on `annotations`
+
+```java
+@Module(name = "engine", exports = {"."}, requires = {"rules"})
+@Req(id = "ENG-1", value = "When no rule matches a number, the engine shall say the number itself.")
+@Req("While the upper bound is below 1, the engine shall say nothing.")
+package com.example.engine;
+```
+
 ### ModularVerifier
 Located in `verification/src/main/java/org/asymetryk/modular/verification/ModularVerifier.java`
 
@@ -132,6 +155,7 @@ mvn clean install
 # Build specific module
 mvn clean install -pl annotations
 mvn clean install -pl verification
+mvn clean install -pl specification
 
 # Run tests
 mvn test
@@ -171,10 +195,14 @@ mvn test -pl verification
 - **JPMS Module Requires**: `src/main/doc/SPEC_20261019_0003_jpms_module_requires.md`
   - JPMS module names (JDK modules, class path jars) can be used in `requires` without `@ExternalModule`
 
+- **Module Requirements (EARS)**: `src/main/doc/SPEC_20261019_0004_module_requirements.md`
+  - New `specification` module: `@Req` EARS requirements next to `@Module`, checked by `RequirementProcessor`
+
 ## Key Files to Know
 - `pom.xml` - Parent POM defining Java 21 and modules
 - `annotations/pom.xml` - Annotations module POM (minimal, just annotation)
 - `verification/pom.xml` - Verification module POM with ArchUnit dependency
+- `specification/pom.xml` - Specification module POM (`@Req` + `RequirementProcessor`, `<proc>none</proc>` for its own sources)
 - `sample-fizzbuzz/pom.xml` - Sample app POM; shows how to enable the processor via `annotationProcessorPaths` (required on JDK 23+), excluded from Maven Central publishing in the root POM
 - `sample-fizzbuzz/README.md` - How to run the sample and experiments that trigger each violation
 - `verification/src/main/java/org/asymetryk/modular/verification/ModularVerifier.java:26` - Main verification logic (currently stubbed)
