@@ -58,8 +58,8 @@ modular/
     └── src/main/java/
         └── org/asymetrik/modular/sample/fizzbuzz/
             ├── rules/     # @Module "rules" (exports "."; rules.internal is hidden)
-            ├── engine/    # @Module "engine" (exports ".")
-            └── app/       # @Module "app" (exports nothing) - FizzBuzzApp main
+            ├── engine/    # @Module "engine" (exports ".", requires "rules")
+            └── app/       # @Module "app" (exports nothing, requires "engine", "rules") - FizzBuzzApp main
 ```
 
 ## Core Concepts
@@ -71,10 +71,11 @@ Located in `annotations/src/main/java/org/asymetryk/modular/annotations/Module.j
 - **Attributes**:
   - `name()`: String - The module name
   - `exports()`: String[] - Array of exported packages/patterns
+  - `requires()`: String[] (default `{}`) - Names of the modules this module may use (not transitive)
 
 **Usage**: Applied in `package-info.java` files:
 ```java
-@Module(name="mymodule", exports = {"."})
+@Module(name="mymodule", exports = {"."}, requires = {"othermodule"})
 package com.example.mypackage;
 
 import org.asymetryk.modular.annotations.Module;
@@ -102,6 +103,9 @@ Based on test cases in `verification/src/test/java/`:
 
 1. **Valid Isolated Module**: A single module without nested submodules is valid
 2. **Invalid Module Hierarchy**: Nested module structures (modules within modules) are invalid
+3. **Exports**: A module may only use classes from packages another module exports
+4. **Requires**: A module may only use the modules listed in its `requires` (not transitive)
+5. **Unique Names**: Module names must be unique, and every name in `requires` must exist (the processor only checks uniqueness, as an incremental build does not see every module)
 
 ## Build Commands
 
@@ -141,6 +145,10 @@ mvn test -pl verification
   - Includes 7 comprehensive unit tests (2 existing, 5 new required)
   - Details implementation algorithm and error reporting requirements
 
+- **Module Requires**: `src/main/doc/SPEC_20261019_0001_module_requires.md`
+  - `requires` attribute: a module may only use the modules it requires (breaking change)
+  - Duplicate and unknown module name checks
+
 ## Key Files to Know
 - `pom.xml` - Parent POM defining Java 21 and modules
 - `annotations/pom.xml` - Annotations module POM (minimal, just annotation)
@@ -156,3 +164,4 @@ This project enforces modular architecture by:
 2. Leveraging ArchUnit to verify architectural rules at build/test time
 3. Preventing module hierarchies (flat module structure)
 4. Controlling module exports to manage API visibility
+5. Making dependencies between modules explicit with `requires`

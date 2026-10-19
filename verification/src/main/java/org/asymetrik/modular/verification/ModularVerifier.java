@@ -17,7 +17,9 @@ package org.asymetrik.modular.verification;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.asymetrik.modular.annotations.Module;
@@ -41,7 +43,9 @@ public class ModularVerifier {
 	/**
 	 * Indicates that the modular verification failed due to violations.
 	 */
-	public sealed interface Invalid extends Result permits ModularVerifier.NestedModuleViolation, ModularVerifier.ExportViolation {}
+	public sealed interface Invalid extends Result permits ModularVerifier.NestedModuleViolation, ModularVerifier.ExportViolation,
+		ModularVerifier.RequiresViolation, ModularVerifier.DuplicateModuleNameViolation,
+		ModularVerifier.UnknownRequiredModuleViolation {}
 
 	/**
 	 * Represents a violation where a module is nested within another module's package hierarchy.
@@ -120,7 +124,81 @@ public class ModularVerifier {
 		}
 	}
 
-	private record ModuleInfo(String name, String packageName, String[] exports) {
+	/**
+	 * Represents a violation where a module uses a class from another module it does not require.
+	 */
+	public record RequiresViolation(
+		String consumerModuleName,
+		String consumerPackage,
+		String consumerClass,
+		String providerModuleName,
+		String providerPackage,
+		String usedClass
+	) implements Invalid {
+
+		public String formatError() {
+			return String.format(
+				"Requires violation detected:%n" +
+				"  Consumer: '%s' (%s)%n" +
+				"  Consumer class: %s%n" +
+				"  Provider: '%s' (%s)%n" +
+				"  Used class: %s%n" +
+				"  Suggestion: Module '%s' should add \"%s\" to its requires or should not use this class",
+				consumerModuleName, consumerPackage,
+				consumerClass,
+				providerModuleName, providerPackage,
+				usedClass,
+				consumerModuleName, providerModuleName
+			);
+		}
+	}
+
+	/**
+	 * Represents a violation where two modules share the same name, which makes {@code requires} ambiguous.
+	 */
+	public record DuplicateModuleNameViolation(
+		String moduleName,
+		String firstPackage,
+		String secondPackage
+	) implements Invalid {
+
+		public String formatError() {
+			return String.format(
+				"Duplicate module name detected:%n" +
+				"  Name: '%s'%n" +
+				"  Declared by: %s%n" +
+				"  And by: %s%n" +
+				"  Suggestion: Rename one of the modules",
+				moduleName, firstPackage, secondPackage
+			);
+		}
+	}
+
+	/**
+	 * Represents a violation where a module requires a module name that no module declares.
+	 */
+	public record UnknownRequiredModuleViolation(
+		String moduleName,
+		String modulePackage,
+		String requiredModuleName
+	) implements Invalid {
+
+		public String formatError() {
+			return String.format(
+				"Unknown required module detected:%n" +
+				"  Module: '%s' (%s)%n" +
+				"  Requires: '%s' (no module has this name)%n" +
+				"  Suggestion: Fix the name in requires, or remove it",
+				moduleName, modulePackage, requiredModuleName
+			);
+		}
+	}
+
+	private record ModuleInfo(String name, String packageName, String[] exports, String[] requires) {
+		boolean doesRequire(ModuleInfo other) {
+			return Arrays.asList(requires).contains(other.name);
+		}
+
 		boolean isDescendantOf(ModuleInfo other) {
 			return this.packageName.startsWith(other.packageName + ".");
 		}
@@ -169,16 +247,42 @@ public class ModularVerifier {
 			}
 		}
 
-		// Check for export violations
-		Result exportCheck = checkExportViolations(importedClasses, modules);
-		if (exportCheck instanceof Invalid) {
-			return exportCheck;
+		// Check that module names are unique and that required modules exist
+		Result namesCheck = checkModuleNames(modules);
+		if (namesCheck instanceof Invalid) {
+			return namesCheck;
+		}
+
+		// Check for requires and export violations
+		Result dependencyCheck = checkDependencyViolations(importedClasses, modules);
+		if (dependencyCheck instanceof Invalid) {
+			return dependencyCheck;
 		}
 
 		return new Valid();
 	}
 
-	private Result checkExportViolations(JavaClasses classes, List<ModuleInfo> modules) {
+	private Result checkModuleNames(List<ModuleInfo> modules) {
+		Map<String, ModuleInfo> byName = new HashMap<>();
+		for (ModuleInfo module : modules) {
+			ModuleInfo first = byName.putIfAbsent(module.name(), module);
+			if (first != null) {
+				return new DuplicateModuleNameViolation(module.name(), first.packageName(), module.packageName());
+			}
+		}
+
+		for (ModuleInfo module : modules) {
+			for (String required : module.requires()) {
+				if (!byName.containsKey(required)) {
+					return new UnknownRequiredModuleViolation(module.name(), module.packageName(), required);
+				}
+			}
+		}
+
+		return new Valid();
+	}
+
+	private Result checkDependencyViolations(JavaClasses classes, List<ModuleInfo> modules) {
 		// For each module, check its dependencies
 		for (ModuleInfo consumerModule : modules) {
 			// Get all classes in this module
@@ -202,6 +306,18 @@ public class ModularVerifier {
 					Optional<ModuleInfo> providerModule = findModuleForClass(depPackage, modules);
 
 					if (providerModule.isPresent() && !providerModule.get().equals(consumerModule)) {
+						// Check that the consumer requires the provider module
+						if (!consumerModule.doesRequire(providerModule.get())) {
+							return new RequiresViolation(
+								consumerModule.name(),
+								consumerModule.packageName(),
+								clazz.getFullName(),
+								providerModule.get().name(),
+								providerModule.get().packageName(),
+								dependency.getFullName()
+							);
+						}
+
 						// Check if the dependency's package is exported
 						if (!isPackageExported(depPackage, providerModule.get())) {
 							return new ExportViolation(
@@ -260,8 +376,9 @@ public class ModularVerifier {
 				String moduleName = annotation.name();
 				String packageName = javaClass.getPackageName();
 				String[] exports = annotation.exports();
+				String[] requires = annotation.requires();
 
-				modules.add(new ModuleInfo(moduleName, packageName, exports));
+				modules.add(new ModuleInfo(moduleName, packageName, exports, requires));
 			}
 		}
 

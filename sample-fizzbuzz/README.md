@@ -7,14 +7,15 @@ Its only dependencies are modular's `annotations` and `processor`.
 
 Packages are relative to `org.asymetrik.modular.sample.fizzbuzz`.
 
-| Module   | Package  | Exports | Content                                                       |
-|----------|----------|---------|---------------------------------------------------------------|
-| `rules`  | `rules`  | `"."`   | `Rule` interface and `Rules` factory (`fizz()`, `buzz()`)     |
-|          | `rules.internal` | — | `DivisibleByRule`: public in Java, but private to the module |
-| `engine` | `engine` | `"."`   | `FizzBuzz`: applies rules to numbers                          |
-| `app`    | `app`    | none    | `FizzBuzzApp`: the `main` method                              |
+| Module   | Package  | Exports | Requires            | Content                                                   |
+|----------|----------|---------|---------------------|-----------------------------------------------------------|
+| `rules`  | `rules`  | `"."`   | none                | `Rule` interface and `Rules` factory (`fizz()`, `buzz()`) |
+|          | `rules.internal` | — |                  | `DivisibleByRule`: public in Java, but private to the module |
+| `engine` | `engine` | `"."`   | `"rules"`           | `FizzBuzz`: applies rules to numbers                      |
+| `app`    | `app`    | none    | `"engine", "rules"` | `FizzBuzzApp`: the `main` method                          |
 
-`app` → `engine` → `rules`, and only through exported packages.
+A module may only use the modules it lists in `requires`, and only their exported packages.
+`app` uses `Rules` directly, so it requires `rules` itself: `requires` is not transitive.
 
 ## Build and run
 
@@ -38,5 +39,8 @@ Rebuild with `mvn compile -pl sample-fizzbuzz` after each change.
 2. **Export it.** Add `"org.asymetrik.modular.sample.fizzbuzz.rules.internal"` (or
    `"org.asymetrik.modular.sample.fizzbuzz.rules.*"`) to the exports of `rules/package-info.java`. The build passes again.
 3. **Close a module.** Change `engine` to `exports = {}`. `app` can no longer use `FizzBuzz`.
-4. **Nest a module.** Add a `package-info.java` with `@Module` in `rules.internal`. The build fails with a
+4. **Drop a requires.** Remove `"rules"` from the requires of `app/package-info.java`. The build fails with a
+   *Requires violation*: `app` uses `Rules` but does not declare it needs the `rules` module, even though
+   `engine` requires it.
+5. **Nest a module.** Add a `package-info.java` with `@Module` in `rules.internal`. The build fails with a
    *Module hierarchy violation*: modules cannot be nested.

@@ -16,7 +16,7 @@
 /**
  * The application itself. Nothing depends on it, so it exports nothing.
  */
-@Module(name = "app", exports = {})
+@Module(name = "app", exports = {}, requires = {"engine", "rules"})
 package org.asymetrik.modular.sample.fizzbuzz.app;
 
 import org.asymetrik.modular.annotations.Module;

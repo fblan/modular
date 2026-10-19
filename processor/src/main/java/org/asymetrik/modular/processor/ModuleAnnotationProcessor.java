@@ -16,8 +16,10 @@
 package org.asymetrik.modular.processor;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -69,7 +71,12 @@ public class ModuleAnnotationProcessor extends AbstractProcessor {
      *  via {@link #TREE_SCAN_OPTION}. Null-safe: tree-based scanning is simply skipped if unavailable. */
     private Trees trees;
 
-    private record ModuleEntry(String name, String packageName, List<String> exports, Element element) {
+    private record ModuleEntry(String name, String packageName, List<String> exports, List<String> requires,
+                               Element element) {
+        boolean doesRequire(ModuleEntry other) {
+            return requires.contains(other.name);
+        }
+
         boolean isDescendantOf(ModuleEntry other) {
             return this.packageName.startsWith(other.packageName + ".");
         }
@@ -132,13 +139,15 @@ public class ModuleAnnotationProcessor extends AbstractProcessor {
                     annotation.name(),
                     pkg.getQualifiedName().toString(),
                     List.of(annotation.exports()),
+                    List.of(annotation.requires()),
                     element
                 ));
             }
         }
 
         checkHierarchyViolations(modules);
-        checkExportViolations(roundEnv, modules);
+        checkDuplicateModuleNames(modules);
+        checkDependencyViolations(roundEnv, modules);
 
         return true;
     }
@@ -165,7 +174,28 @@ public class ModuleAnnotationProcessor extends AbstractProcessor {
         }
     }
 
-    private void checkExportViolations(RoundEnvironment roundEnv, List<ModuleEntry> modules) {
+    /** Modules are referenced by name in {@code requires}, so names must be unique. Unknown names in
+     *  {@code requires} are not reported here: in an incremental build, a module missing from this round
+     *  may simply not be recompiled. {@code ModularVerifier} checks them, as it sees every module. */
+    private void checkDuplicateModuleNames(List<ModuleEntry> modules) {
+        Map<String, ModuleEntry> firstByName = new LinkedHashMap<>();
+        for (ModuleEntry module : modules) {
+            ModuleEntry first = firstByName.putIfAbsent(module.name(), module);
+            if (first != null) {
+                processingEnv.getMessager().printMessage(
+                    Diagnostic.Kind.ERROR,
+                    String.format(
+                        "Duplicate module name: '%s' is declared by both %s and %s. " +
+                        "Module names must be unique, as other modules reference them in 'requires'.",
+                        module.name(), first.packageName(), module.packageName()
+                    ),
+                    module.element()
+                );
+            }
+        }
+    }
+
+    private void checkDependencyViolations(RoundEnvironment roundEnv, List<ModuleEntry> modules) {
         for (Element rootElement : roundEnv.getRootElements()) {
             if (!(rootElement instanceof TypeElement typeElement)) continue;
             if (typeElement.getSimpleName().contentEquals("package-info")) continue;
@@ -181,23 +211,23 @@ public class ModuleAnnotationProcessor extends AbstractProcessor {
             TreeScanResult treeResult = collectTreeReferencedTypes(typeElement);
 
             for (TypeElement dep : collectReferencedTypes(typeElement)) {
-                reportExportViolationIfAny(typeElement, consumer, dep, modules, reported, null, treeResult);
+                reportDependencyViolationIfAny(typeElement, consumer, dep, modules, reported, null, treeResult);
             }
             for (TypeElement dep : treeResult.importedTypes()) {
-                reportExportViolationIfAny(typeElement, consumer, dep, modules, reported, "import declaration", treeResult);
+                reportDependencyViolationIfAny(typeElement, consumer, dep, modules, reported, "import declaration", treeResult);
             }
             for (TypeElement dep : treeResult.referencedTypes()) {
-                reportExportViolationIfAny(typeElement, consumer, dep, modules, reported,
+                reportDependencyViolationIfAny(typeElement, consumer, dep, modules, reported,
                     "type/member reference in method body", treeResult);
             }
             for (TypeElement dep : treeResult.stringLiteralTypes()) {
-                reportExportViolationIfAny(typeElement, consumer, dep, modules, reported,
+                reportDependencyViolationIfAny(typeElement, consumer, dep, modules, reported,
                     "string literal reference — heuristic match, verify this is intentional", null);
             }
         }
     }
 
-    private void reportExportViolationIfAny(TypeElement typeElement, ModuleEntry consumer, TypeElement dep,
+    private void reportDependencyViolationIfAny(TypeElement typeElement, ModuleEntry consumer, TypeElement dep,
                                              List<ModuleEntry> modules, Set<String> reported, String detectionNote,
                                              TreeScanResult wildcardContext) {
         String depQualifiedName = dep.getQualifiedName().toString();
@@ -210,6 +240,26 @@ public class ModuleAnnotationProcessor extends AbstractProcessor {
         if (providerOpt.isEmpty()) return;
         ModuleEntry provider = providerOpt.get();
         if (provider.packageName().equals(consumer.packageName())) return;
+
+        if (!consumer.doesRequire(provider)) {
+            // One error per required module is enough to explain what to add to 'requires'.
+            if (!reported.add("requires:" + provider.name())) return;
+            String message = String.format(
+                "Requires violation: '%s' (%s) uses '%s' from module '%s' (%s) without requiring it. " +
+                "Add \"%s\" to the requires of module '%s' or '%s' should not use this type.",
+                consumer.name(), consumer.packageName(),
+                depQualifiedName,
+                provider.name(), provider.packageName(),
+                provider.name(), consumer.name(),
+                consumer.name()
+            );
+            if (detectionNote != null) {
+                message += " [detected via: " + detectionNote + "]";
+            }
+            processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR, message, typeElement);
+            return;
+        }
+
         if (isPackageExported(depPackage, provider)) return;
 
         if (wildcardContext != null && !wildcardContext.isExplicitlyImported(dep)) {

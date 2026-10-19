@@ -1,5 +1,7 @@
 package org.asymetrik.modular.verification;
 
+import java.util.List;
+
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -101,6 +103,55 @@ class ModularVerifierTest {
 		Assertions.assertThat(violation.violatingClass()).contains("ClassNotExported");
 		Assertions.assertThat(violation.consumerClass())
 			.contains("IllegalConsumerClass");
+	}
+
+	@Test
+	void testing_module_using_class_of_module_it_does_not_require_should_return_error() {
+		ModularVerifier modularVerifier = new ModularVerifier(
+			"org.asymetrik.modular.verification.testedmodules.modulea",
+			"org.asymetrik.modular.verification.testedmodules.modulenotrequiring"
+		);
+		ModularVerifier.Result result = modularVerifier.verify();
+
+		Assertions.assertThat(result).isInstanceOf(ModularVerifier.RequiresViolation.class);
+		ModularVerifier.RequiresViolation violation = (ModularVerifier.RequiresViolation) result;
+
+		Assertions.assertThat(violation.consumerModuleName()).isEqualTo("moduleNotRequiring");
+		Assertions.assertThat(violation.providerModuleName()).isEqualTo("moduleA");
+		Assertions.assertThat(violation.usedClass()).contains("ClassExported");
+		Assertions.assertThat(violation.consumerClass()).contains("UndeclaredConsumerClass");
+		Assertions.assertThat(violation.formatError()).contains("should add \"moduleA\" to its requires");
+	}
+
+	@Test
+	void testing_module_requiring_unknown_module_should_return_error() {
+		ModularVerifier modularVerifier = new ModularVerifier(
+			"org.asymetrik.modular.verification.testedmodules.unknownrequires"
+		);
+		ModularVerifier.Result result = modularVerifier.verify();
+
+		Assertions.assertThat(result).isInstanceOf(ModularVerifier.UnknownRequiredModuleViolation.class);
+		ModularVerifier.UnknownRequiredModuleViolation violation = (ModularVerifier.UnknownRequiredModuleViolation) result;
+
+		Assertions.assertThat(violation.moduleName()).isEqualTo("unknownRequires");
+		Assertions.assertThat(violation.requiredModuleName()).isEqualTo("ghost");
+	}
+
+	@Test
+	void testing_two_modules_with_same_name_should_return_error() {
+		ModularVerifier modularVerifier = new ModularVerifier(
+			"org.asymetrik.modular.verification.testedmodules.duplicatenames"
+		);
+		ModularVerifier.Result result = modularVerifier.verify();
+
+		Assertions.assertThat(result).isInstanceOf(ModularVerifier.DuplicateModuleNameViolation.class);
+		ModularVerifier.DuplicateModuleNameViolation violation = (ModularVerifier.DuplicateModuleNameViolation) result;
+
+		Assertions.assertThat(violation.moduleName()).isEqualTo("dup");
+		Assertions.assertThat(List.of(violation.firstPackage(), violation.secondPackage())).containsExactlyInAnyOrder(
+			"org.asymetrik.modular.verification.testedmodules.duplicatenames.first",
+			"org.asymetrik.modular.verification.testedmodules.duplicatenames.second"
+		);
 	}
 
 }
