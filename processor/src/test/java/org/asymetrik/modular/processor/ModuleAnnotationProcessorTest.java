@@ -479,7 +479,7 @@ class ModuleAnnotationProcessorTest {
     }
 
     @Test
-    void usingNonJavaClassOutsideAnyModule_producesUnmanagedDependencyError() {
+    void usingJdkClassOfJpmsModuleNotRequired_producesRequiresViolationError() {
         var result = compile(
             packageInfo("com.example.consumer", "consumer", "."),
             classSourceWithField(
@@ -494,10 +494,56 @@ class ModuleAnnotationProcessorTest {
             .first()
             .extracting(d -> d.getMessage(null))
             .asString()
-            .contains("Unmanaged dependency")
-            .contains("'consumer'")
-            .contains("javax.annotation.processing.Processor")
-            .contains("declare an @ExternalModule covering package 'javax.annotation.processing'");
+            .contains("Requires violation")
+            .contains("JPMS module 'java.compiler'")
+            .contains("Add \"java.compiler\" to the requires of module 'consumer'");
+    }
+
+    @Test
+    void usingJdkClassOfRequiredJpmsModule_producesNoErrors() {
+        var result = compile(
+            packageInfoRequiring("com.example.consumer", "consumer", List.of("java.compiler"), "."),
+            classSourceWithField(
+                "com.example.consumer.ConsumerClass", "com.example.consumer", "ConsumerClass",
+                "javax.annotation.processing.Processor", "Processor"
+            )
+        );
+
+        assertThat(result).filteredOn(d -> d.getKind() == ERROR).isEmpty();
+    }
+
+    @Test
+    void usingClassPathJarClassOfJpmsModuleNotRequired_producesRequiresViolationError() {
+        // junit-jupiter-api is on the test class path, and its module-info names it org.junit.jupiter.api
+        var result = compile(
+            packageInfo("com.example.consumer", "consumer", "."),
+            classSourceWithField(
+                "com.example.consumer.ConsumerClass", "com.example.consumer", "ConsumerClass",
+                "org.junit.jupiter.api.TestInfo", "TestInfo"
+            )
+        );
+
+        assertThat(result)
+            .filteredOn(d -> d.getKind() == ERROR)
+            .hasSize(1)
+            .first()
+            .extracting(d -> d.getMessage(null))
+            .asString()
+            .contains("Requires violation")
+            .contains("JPMS module 'org.junit.jupiter.api'");
+    }
+
+    @Test
+    void usingClassPathJarClassOfRequiredJpmsModule_producesNoErrors() {
+        var result = compile(
+            packageInfoRequiring("com.example.consumer", "consumer", List.of("org.junit.jupiter.api"), "."),
+            classSourceWithField(
+                "com.example.consumer.ConsumerClass", "com.example.consumer", "ConsumerClass",
+                "org.junit.jupiter.api.TestInfo", "TestInfo"
+            )
+        );
+
+        assertThat(result).filteredOn(d -> d.getKind() == ERROR).isEmpty();
     }
 
     @Test

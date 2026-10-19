@@ -73,7 +73,7 @@ Located in `annotations/src/main/java/org/asymetryk/modular/annotations/Module.j
 - **Attributes**:
   - `name()`: String - The module name
   - `exports()`: String[] - Array of exported packages/patterns
-  - `requires()`: String[] (default `{}`) - Names of the modules (or virtual modules) this module may use (not transitive)
+  - `requires()`: String[] (default `{}`) - Names of the modules, virtual modules or JPMS modules (e.g. `java.desktop`, `jakarta.validation`) this module may use (not transitive)
 
 **Usage**: Applied in `package-info.java` files:
 ```java
@@ -121,7 +121,7 @@ Based on test cases in `verification/src/test/java/`:
 3. **Exports**: A module may only use classes from packages another module exports
 4. **Requires**: A module may only use the modules listed in its `requires` (not transitive)
 5. **Unique Names**: Module names must be unique, and every name in `requires` must exist (the processor only checks uniqueness, as an incremental build does not see every module)
-6. **External Packages**: Outside modules, only `java.*` is free. Any other package must be in an `@ExternalModule` the module requires
+6. **External Packages**: Outside modules, only `java.*` is free. Any other package must be required through its owner, resolved in this order: `@Module`, `@ExternalModule`, then its JPMS module name (named module, else the class path jar's `module-info`, `Automatic-Module-Name` or file name). With no owner, it is an unmanaged dependency
 
 ## Build Commands
 
@@ -167,6 +167,9 @@ mvn test -pl verification
 
 - **External Modules**: `src/main/doc/SPEC_20261019_0002_external_modules.md`
   - `@ExternalModule` virtual modules for packages outside modules; only `java.*` is free (breaking change)
+
+- **JPMS Module Requires**: `src/main/doc/SPEC_20261019_0003_jpms_module_requires.md`
+  - JPMS module names (JDK modules, class path jars) can be used in `requires` without `@ExternalModule`
 
 ## Key Files to Know
 - `pom.xml` - Parent POM defining Java 21 and modules
