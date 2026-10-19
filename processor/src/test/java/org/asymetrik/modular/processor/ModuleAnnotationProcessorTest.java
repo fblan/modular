@@ -454,7 +454,157 @@ class ModuleAnnotationProcessorTest {
         assertThat(result).filteredOn(d -> d.getKind() == ERROR).isEmpty();
     }
 
+    @Test
+    void usingJavaClasses_producesNoErrors() {
+        var result = compile(
+            packageInfo("com.example.consumer", "consumer", "."),
+            inMemorySource("com.example.consumer.ConsumerClass",
+                "package com.example.consumer;\n" +
+                "public class ConsumerClass { java.util.List<String> names; java.time.Instant at; }\n")
+        );
+
+        assertThat(result).filteredOn(d -> d.getKind() == ERROR).isEmpty();
+    }
+
+    @Test
+    void usingArrayLengthAndClone_producesNoErrors() {
+        var result = compile(
+            packageInfo("com.example.consumer", "consumer", "."),
+            inMemorySource("com.example.consumer.ConsumerClass",
+                "package com.example.consumer;\n" +
+                "public class ConsumerClass { int run(String[] args) { return args.length + args.clone().length; } }\n")
+        );
+
+        assertThat(result).filteredOn(d -> d.getKind() == ERROR).isEmpty();
+    }
+
+    @Test
+    void usingNonJavaClassOutsideAnyModule_producesUnmanagedDependencyError() {
+        var result = compile(
+            packageInfo("com.example.consumer", "consumer", "."),
+            classSourceWithField(
+                "com.example.consumer.ConsumerClass", "com.example.consumer", "ConsumerClass",
+                "javax.annotation.processing.Processor", "Processor"
+            )
+        );
+
+        assertThat(result)
+            .filteredOn(d -> d.getKind() == ERROR)
+            .hasSize(1)
+            .first()
+            .extracting(d -> d.getMessage(null))
+            .asString()
+            .contains("Unmanaged dependency")
+            .contains("'consumer'")
+            .contains("javax.annotation.processing.Processor")
+            .contains("declare an @ExternalModule covering package 'javax.annotation.processing'");
+    }
+
+    @Test
+    void usingOwnPackageWithoutModule_producesUnmanagedDependencyError() {
+        var result = compile(
+            classSource("com.example.util.Helper", "com.example.util", "Helper"),
+            packageInfo("com.example.consumer", "consumer", "."),
+            classSourceWithField(
+                "com.example.consumer.ConsumerClass", "com.example.consumer", "ConsumerClass",
+                "com.example.util.Helper", "Helper"
+            )
+        );
+
+        assertThat(result)
+            .filteredOn(d -> d.getKind() == ERROR)
+            .hasSize(1)
+            .first()
+            .extracting(d -> d.getMessage(null))
+            .asString()
+            .contains("Unmanaged dependency")
+            .contains("com.example.util.Helper");
+    }
+
+    @Test
+    void usingClassOfRequiredExternalModule_inSubPackage_producesNoErrors() {
+        var result = compile(
+            externalModuleInfo("com.example.external", "annotation", "javax.annotation"),
+            packageInfoRequiring("com.example.consumer", "consumer", List.of("annotation"), "."),
+            classSourceWithField(
+                "com.example.consumer.ConsumerClass", "com.example.consumer", "ConsumerClass",
+                "javax.annotation.processing.Processor", "Processor"
+            )
+        );
+
+        assertThat(result).filteredOn(d -> d.getKind() == ERROR).isEmpty();
+    }
+
+    @Test
+    void usingClassOfExternalModuleNotRequired_producesRequiresViolationError() {
+        var result = compile(
+            externalModuleInfo("com.example.external", "annotation", "javax.annotation"),
+            packageInfo("com.example.consumer", "consumer", "."),
+            classSourceWithField(
+                "com.example.consumer.ConsumerClass", "com.example.consumer", "ConsumerClass",
+                "javax.annotation.processing.Processor", "Processor"
+            )
+        );
+
+        assertThat(result)
+            .filteredOn(d -> d.getKind() == ERROR)
+            .hasSize(1)
+            .first()
+            .extracting(d -> d.getMessage(null))
+            .asString()
+            .contains("Requires violation")
+            .contains("external module 'annotation'")
+            .contains("Add \"annotation\" to the requires of module 'consumer'");
+    }
+
+    @Test
+    void repeatedExternalModules_mostSpecificPackageWins() {
+        var result = compile(
+            inMemorySource("com.example.external.package-info",
+                "@ExternalModule(name = \"annotation\", packages = {\"javax.annotation\"})\n" +
+                "@ExternalModule(name = \"processing\", packages = {\"javax.annotation.processing\"})\n" +
+                "package com.example.external;\n" +
+                "import org.asymetrik.modular.annotations.ExternalModule;\n"),
+            packageInfoRequiring("com.example.consumer", "consumer", List.of("processing"), "."),
+            classSourceWithField(
+                "com.example.consumer.ConsumerClass", "com.example.consumer", "ConsumerClass",
+                "javax.annotation.processing.Processor", "Processor"
+            )
+        );
+
+        assertThat(result).filteredOn(d -> d.getKind() == ERROR).isEmpty();
+    }
+
+    @Test
+    void externalModuleWithSameNameAsModule_producesDuplicateModuleNameError() {
+        var result = compile(
+            externalModuleInfo("com.example.external", "consumer", "javax.annotation"),
+            packageInfo("com.example.consumer", "consumer", "."),
+            classSource("com.example.consumer.ConsumerClass", "com.example.consumer", "ConsumerClass")
+        );
+
+        assertThat(result)
+            .filteredOn(d -> d.getKind() == ERROR)
+            .hasSize(1)
+            .first()
+            .extracting(d -> d.getMessage(null))
+            .asString()
+            .contains("Duplicate module name")
+            .contains("'consumer'")
+            .contains("@ExternalModule on com.example.external");
+    }
+
     // --- helpers ---
+
+    private static JavaFileObject externalModuleInfo(String pkg, String moduleName, String... packages) {
+        String source = String.format(
+            "@ExternalModule(name = \"%s\", packages = {%s})%n" +
+            "package %s;%n" +
+            "import org.asymetrik.modular.annotations.ExternalModule;%n",
+            moduleName, quotedList(List.of(packages)), pkg
+        );
+        return inMemorySource(pkg + ".package-info", source);
+    }
 
     private static JavaFileObject packageInfo(String pkg, String moduleName, String... exports) {
         return packageInfoRequiring(pkg, moduleName, List.of(), exports);
