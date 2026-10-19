@@ -154,4 +154,49 @@ class ModularVerifierTest {
 		);
 	}
 
+	@Test
+	void testing_module_using_class_of_required_external_module_should_return_success() {
+		ModularVerifier modularVerifier = new ModularVerifier(
+			"org.asymetrik.modular.verification.testedmodules.externaldeclarations",
+			"org.asymetrik.modular.verification.testedmodules.externalrequired"
+		);
+		ModularVerifier.Result result = modularVerifier.verify();
+
+		Assertions.assertThat(result).isInstanceOf(ModularVerifier.Valid.class);
+	}
+
+	@Test
+	void testing_module_using_class_of_external_module_it_does_not_require_should_return_error() {
+		// Requires "annotation" (javax.annotation), but the more specific "processing" owns javax.annotation.processing
+		ModularVerifier modularVerifier = new ModularVerifier(
+			"org.asymetrik.modular.verification.testedmodules.externaldeclarations",
+			"org.asymetrik.modular.verification.testedmodules.externalnotrequired"
+		);
+		ModularVerifier.Result result = modularVerifier.verify();
+
+		Assertions.assertThat(result).isInstanceOf(ModularVerifier.RequiresViolation.class);
+		ModularVerifier.RequiresViolation violation = (ModularVerifier.RequiresViolation) result;
+
+		Assertions.assertThat(violation.consumerModuleName()).isEqualTo("externalnotrequired");
+		Assertions.assertThat(violation.providerModuleName()).isEqualTo("processing");
+		Assertions.assertThat(violation.usedClass()).isEqualTo("javax.annotation.processing.Processor");
+	}
+
+	@Test
+	void testing_module_using_class_outside_java_and_any_module_should_return_error() {
+		ModularVerifier modularVerifier = new ModularVerifier(
+			"org.asymetrik.modular.verification.testedmodules.unmanaged"
+		);
+		ModularVerifier.Result result = modularVerifier.verify();
+
+		Assertions.assertThat(result).isInstanceOf(ModularVerifier.UnmanagedDependencyViolation.class);
+		ModularVerifier.UnmanagedDependencyViolation violation = (ModularVerifier.UnmanagedDependencyViolation) result;
+
+		Assertions.assertThat(violation.consumerModuleName()).isEqualTo("unmanaged");
+		Assertions.assertThat(violation.consumerClass()).contains("UnmanagedUser");
+		Assertions.assertThat(violation.usedClass()).isEqualTo("javax.annotation.processing.Processor");
+		Assertions.assertThat(violation.usedClassPackage()).isEqualTo("javax.annotation.processing");
+		Assertions.assertThat(violation.formatError()).contains("Declare an @ExternalModule covering package 'javax.annotation.processing'");
+	}
+
 }

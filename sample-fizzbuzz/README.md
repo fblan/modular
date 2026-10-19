@@ -16,6 +16,9 @@ Packages are relative to `org.asymetrik.modular.sample.fizzbuzz`.
 
 A module may only use the modules it lists in `requires`, and only their exported packages.
 `app` uses `Rules` directly, so it requires `rules` itself: `requires` is not transitive.
+Outside the modules, only `java.*` can be used freely: any other package (a library, `javax.*`, or a package of
+yours without `@Module`) must be declared as a virtual module with `@ExternalModule` and required.
+The sample only uses `java.*`.
 
 ## Build and run
 
@@ -42,5 +45,16 @@ Rebuild with `mvn compile -pl sample-fizzbuzz` after each change.
 4. **Drop a requires.** Remove `"rules"` from the requires of `app/package-info.java`. The build fails with a
    *Requires violation*: `app` uses `Rules` but does not declare it needs the `rules` module, even though
    `engine` requires it.
-5. **Nest a module.** Add a `package-info.java` with `@Module` in `rules.internal`. The build fails with a
+5. **Use an external package.** In `FizzBuzzApp`, replace `forEach(System.out::println)` with
+   `forEach(line -> javax.swing.JOptionPane.showMessageDialog(null, line))`. The build fails with an
+   *Unmanaged dependency*: `javax.swing` is not `java.*` and is in no module. Declare a virtual module in a new
+   `external/package-info.java`:
+   ```java
+   @ExternalModule(name = "swing", packages = {"javax.swing"})
+   package org.asymetrik.modular.sample.fizzbuzz.external;
+
+   import org.asymetrik.modular.annotations.ExternalModule;
+   ```
+   The build now fails with a *Requires violation*, until you add `"swing"` to the requires of `app`.
+6. **Nest a module.** Add a `package-info.java` with `@Module` in `rules.internal`. The build fails with a
    *Module hierarchy violation*: modules cannot be nested.
