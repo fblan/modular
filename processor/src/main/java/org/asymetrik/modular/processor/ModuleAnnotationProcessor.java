@@ -15,7 +15,14 @@
  */
 package org.asymetrik.modular.processor;
 
+import java.io.IOException;
+import java.lang.module.FindException;
+import java.lang.module.ModuleFinder;
+import java.lang.module.ModuleReference;
+import java.net.URI;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -33,6 +40,8 @@ import javax.lang.model.SourceVersion;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
+import javax.lang.model.element.ModuleElement;
+import javax.lang.model.element.NestingKind;
 import javax.lang.model.element.PackageElement;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
@@ -43,6 +52,8 @@ import javax.lang.model.type.TypeMirror;
 import javax.lang.model.type.WildcardType;
 import javax.lang.model.util.SimpleTypeVisitor14;
 import javax.tools.Diagnostic;
+import javax.tools.FileObject;
+import javax.tools.StandardLocation;
 
 import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.CompilationUnitTree;
@@ -80,6 +91,9 @@ public class ModuleAnnotationProcessor extends AbstractProcessor {
 
     /** Virtual modules declared with {@link ExternalModule} in the current round. */
     private List<ExternalModuleEntry> externalModules = List.of();
+
+    /** JPMS module name by package, as found by {@link #findJpmsModuleName(TypeElement)}. */
+    private final Map<String, Optional<String>> jpmsModuleByPackage = new HashMap<>();
 
     private record ModuleEntry(String name, String packageName, List<String> exports, List<String> requires,
                                Element element) {
@@ -286,7 +300,7 @@ public class ModuleAnnotationProcessor extends AbstractProcessor {
 
         Optional<ModuleEntry> providerOpt = findModuleForPackage(depPackage, modules);
         if (providerOpt.isEmpty()) {
-            reportExternalDependencyViolationIfAny(typeElement, consumer, depQualifiedName, depPackage, reported,
+            reportExternalDependencyViolationIfAny(typeElement, consumer, dep, depQualifiedName, depPackage, reported,
                 detectionNote);
             return;
         }
@@ -329,8 +343,10 @@ public class ModuleAnnotationProcessor extends AbstractProcessor {
     }
 
     /** A dependency outside every module: it must be in a virtual module the consumer requires. */
+    /** A dependency outside every module: it must be in a virtual module, or else a JPMS module, that the
+     *  consumer requires. */
     private void reportExternalDependencyViolationIfAny(TypeElement typeElement, ModuleEntry consumer,
-                                                        String depQualifiedName, String depPackage,
+                                                        TypeElement dep, String depQualifiedName, String depPackage,
                                                         Set<String> reported, String detectionNote) {
         Optional<ExternalModuleEntry> externalOpt = findExternalModuleForPackage(depPackage);
         if (externalOpt.isPresent()) {
@@ -342,12 +358,21 @@ public class ModuleAnnotationProcessor extends AbstractProcessor {
             return;
         }
 
+        Optional<String> jpmsModule = findJpmsModuleName(dep);
+        if (jpmsModule.isPresent()) {
+            if (consumer.requires().contains(jpmsModule.get())) return;
+            reportRequiresViolation(typeElement, consumer, depQualifiedName,
+                "JPMS module '" + jpmsModule.get() + "'", jpmsModule.get(),
+                reported, detectionNote);
+            return;
+        }
+
         // One error per package is enough to explain which @ExternalModule to declare.
         if (!reported.add("unmanaged:" + depPackage)) return;
         String message = String.format(
-            "Unmanaged dependency: '%s' (%s) uses '%s', which is in no module. Only java.* packages can be used " +
-            "freely: declare an @ExternalModule covering package '%s' and add it to the requires of module '%s', " +
-            "or '%s' should not use this type.",
+            "Unmanaged dependency: '%s' (%s) uses '%s', which is in no module and has no JPMS module name. " +
+            "Only java.* packages can be used freely: declare an @ExternalModule covering package '%s' and add it " +
+            "to the requires of module '%s', or '%s' should not use this type.",
             consumer.name(), consumer.packageName(),
             depQualifiedName,
             depPackage, consumer.name(),
@@ -552,6 +577,57 @@ public class ModuleAnnotationProcessor extends AbstractProcessor {
 
     private static boolean isJavaPackage(String packageName) {
         return packageName.equals("java") || packageName.startsWith("java.");
+    }
+
+    /**
+     * The JPMS module of a type, as JPMS itself would name it: its named module (JDK, module path), else the
+     * module of the jar or directory it is loaded from on the class path (its {@code module-info}, its
+     * {@code Automatic-Module-Name}, or the name derived from the jar's file name). Empty for a type in no jar
+     * with a module name, such as a source of the current compilation.
+     */
+    private Optional<String> findJpmsModuleName(TypeElement type) {
+        ModuleElement module = processingEnv.getElementUtils().getModuleOf(type);
+        if (module != null && !module.isUnnamed()) {
+            return Optional.of(module.getQualifiedName().toString());
+        }
+        String packageName = processingEnv.getElementUtils().getPackageOf(type).getQualifiedName().toString();
+        return jpmsModuleByPackage.computeIfAbsent(packageName, p -> findClassPathModuleName(p, type));
+    }
+
+    private Optional<String> findClassPathModuleName(String packageName, TypeElement type) {
+        TypeElement topLevel = type;
+        while (topLevel.getNestingKind() != NestingKind.TOP_LEVEL
+               && topLevel.getEnclosingElement() instanceof TypeElement enclosing) {
+            topLevel = enclosing;
+        }
+        try {
+            FileObject classFile = processingEnv.getFiler().getResource(
+                StandardLocation.CLASS_PATH, packageName, topLevel.getSimpleName() + ".class");
+            return classPathRoot(classFile.toUri(), packageName)
+                .flatMap(root -> ModuleFinder.of(root).findAll().stream().findFirst())
+                .map(ModuleReference::descriptor)
+                .map(descriptor -> descriptor.name());
+        } catch (IOException | IllegalArgumentException | FindException | SecurityException notFound) {
+            return Optional.empty();
+        }
+    }
+
+    /** The jar or directory holding a class file, from the class file's URI. */
+    private static Optional<Path> classPathRoot(URI classFile, String packageName) {
+        if ("jar".equals(classFile.getScheme())) {
+            String jar = classFile.getRawSchemeSpecificPart();
+            int separator = jar.indexOf("!/");
+            return separator < 0 ? Optional.empty() : Optional.of(Path.of(URI.create(jar.substring(0, separator))));
+        }
+        if ("file".equals(classFile.getScheme())) {
+            Path root = Path.of(classFile).getParent();
+            int depth = packageName.isEmpty() ? 0 : packageName.split("\\.").length;
+            for (int i = 0; i < depth && root != null; i++) {
+                root = root.getParent();
+            }
+            return Optional.ofNullable(root);
+        }
+        return Optional.empty();
     }
 
     /** The virtual module whose listed package covers {@code packageName} most specifically, if any. */

@@ -1,7 +1,7 @@
 package org.asymetrik.modular.verification.testedmodules.unmanaged;
 
-import javax.annotation.processing.Processor;
+import org.asymetrik.modular.verification.testedmodules.nomodules.RegularClass;
 
 public class UnmanagedUser {
-	private Processor processor;
+	private RegularClass regular;
 }

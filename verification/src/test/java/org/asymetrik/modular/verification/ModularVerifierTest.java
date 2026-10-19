@@ -194,9 +194,35 @@ class ModularVerifierTest {
 
 		Assertions.assertThat(violation.consumerModuleName()).isEqualTo("unmanaged");
 		Assertions.assertThat(violation.consumerClass()).contains("UnmanagedUser");
-		Assertions.assertThat(violation.usedClass()).isEqualTo("javax.annotation.processing.Processor");
-		Assertions.assertThat(violation.usedClassPackage()).isEqualTo("javax.annotation.processing");
-		Assertions.assertThat(violation.formatError()).contains("Declare an @ExternalModule covering package 'javax.annotation.processing'");
+		Assertions.assertThat(violation.usedClass()).endsWith("nomodules.RegularClass");
+		Assertions.assertThat(violation.usedClassPackage()).endsWith("nomodules");
+		Assertions.assertThat(violation.formatError()).contains("Declare an @ExternalModule covering package");
+	}
+
+	@Test
+	void testing_module_using_classes_of_required_jpms_modules_should_return_success() {
+		// java.compiler is a JDK module; org.junit.jupiter.api is the module-info name of a class path jar
+		ModularVerifier modularVerifier = new ModularVerifier(
+			"org.asymetrik.modular.verification.testedmodules.jpmsrequired"
+		);
+		ModularVerifier.Result result = modularVerifier.verify();
+
+		Assertions.assertThat(result).isInstanceOf(ModularVerifier.Valid.class);
+	}
+
+	@Test
+	void testing_module_using_class_of_jpms_module_it_does_not_require_should_return_error() {
+		ModularVerifier modularVerifier = new ModularVerifier(
+			"org.asymetrik.modular.verification.testedmodules.jpmsnotrequired"
+		);
+		ModularVerifier.Result result = modularVerifier.verify();
+
+		Assertions.assertThat(result).isInstanceOf(ModularVerifier.RequiresViolation.class);
+		ModularVerifier.RequiresViolation violation = (ModularVerifier.RequiresViolation) result;
+
+		Assertions.assertThat(violation.consumerModuleName()).isEqualTo("jpmsnotrequired");
+		Assertions.assertThat(violation.providerModuleName()).isEqualTo("org.junit.jupiter.api");
+		Assertions.assertThat(violation.usedClass()).isEqualTo("org.junit.jupiter.api.TestInfo");
 	}
 
 }
