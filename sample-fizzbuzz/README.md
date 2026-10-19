@@ -37,6 +37,21 @@ Each module states what it must do with `@Req`, next to `@Module`, as sentences 
 `app` also uses the *Where* (optional feature) and *If …, then* (unwanted behaviour) patterns, and `rules` the
 plain *The … shall* one.
 
+The unit tests reference the requirements they check with `@TestReq`, for example in `FizzBuzzTest`:
+
+```java
+@Test
+@TestReq("ENG-2")
+void concatenatesTheWordsInRuleOrder() { ... }
+```
+
+When the tests compile, an unknown id is an error, and a requirement without a test is a warning. `APP-1` has no
+test on purpose, so `mvn clean install` shows:
+
+```
+[WARNING] Requirement 'APP-1' of module 'app' has no test: "Where no argument is given, the app shall print FizzBuzz up to 100.". Add @TestReq("APP-1") to a test that checks it.
+```
+
 ## Build and run
 
 From the repository root:
@@ -81,3 +96,6 @@ Rebuild with `mvn compile -pl sample-fizzbuzz` after each change.
    `"While the upper bound is below 1, the system shall say nothing."`. The build fails: the subject of a
    requirement must be its module, *the engine*. Then try a sentence that is not EARS, such as
    `"The engine must say nothing."`: the error lists the EARS patterns to use.
+8. **Reference a missing requirement.** In `FizzBuzzTest`, change `@TestReq("ENG-3")` to `@TestReq("ENG-33")` and
+   run `mvn test-compile -pl sample-fizzbuzz`. The test build fails: no `@Req` has this id. Back to `"ENG-3"`, then
+   remove the `@TestReq`: the build passes again, with a warning that ENG-3 has no test.

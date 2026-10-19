@@ -55,6 +55,7 @@ modular/
 │   └── src/main/java/
 │       └── org/asymetrik/modular/specification/
 │           ├── Req.java, Reqs.java              # @Req (repeatable) and its container
+│           ├── TestReq.java                     # @TestReq: links a test to requirement ids
 │           └── processor/RequirementProcessor.java
 │
 ├── verification/          # Verification module
@@ -111,6 +112,14 @@ Located in `specification/src/main/java/org/asymetrik/modular/specification/Req.
   `@Module`, the sentence is EARS (ubiquitous, `When`, `While`, `If …, then`, `Where`, or combined clauses), its
   subject is the module (`the <module name> shall`, ignoring case), and ids are unique within the compilation
 - Reads `@Module` by qualified name: `specification` does not depend on `annotations`
+- Writes `META-INF/modular/requirements.properties` (`<id>=<module>|<sentence>`, sorted) to the class output when
+  compiling `@Req`s with ids; on an incremental build, entries of modules not recompiled are kept
+
+### @TestReq Annotation (specification module)
+- **Target**: test methods and classes, `RUNTIME` retention; `value()` - requirement ids
+- **Checked by** `RequirementProcessor` when the tests compile, using the index on the class path: unknown id is
+  an error (on the test), a requirement with an id but no `@TestReq` is a warning (only in compilations that
+  contain a `@TestReq`)
 
 ```java
 @Module(name = "engine", exports = {"."}, requires = {"rules"})
@@ -197,6 +206,9 @@ mvn test -pl verification
 
 - **Module Requirements (EARS)**: `src/main/doc/SPEC_20261019_0004_module_requirements.md`
   - New `specification` module: `@Req` EARS requirements next to `@Module`, checked by `RequirementProcessor`
+
+- **Requirement Tests**: `src/main/doc/SPEC_20261019_0005_test_requirements.md`
+  - `@TestReq` links tests to requirement ids; unknown ids are errors, untested requirements are warnings
 
 ## Key Files to Know
 - `pom.xml` - Parent POM defining Java 21 and modules

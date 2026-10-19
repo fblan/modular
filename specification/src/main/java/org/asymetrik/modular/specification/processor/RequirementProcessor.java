@@ -15,11 +15,20 @@
  */
 package org.asymetrik.modular.specification.processor;
 
-import java.util.HashMap;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.StringWriter;
+import java.io.Writer;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Properties;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -33,13 +42,17 @@ import javax.lang.model.element.Element;
 import javax.lang.model.element.PackageElement;
 import javax.lang.model.element.TypeElement;
 import javax.tools.Diagnostic;
+import javax.tools.FileObject;
+import javax.tools.StandardLocation;
 
 import org.asymetrik.modular.specification.Req;
 import org.asymetrik.modular.specification.Reqs;
+import org.asymetrik.modular.specification.TestReq;
 
 @SupportedAnnotationTypes({
     "org.asymetrik.modular.specification.Req",
-    "org.asymetrik.modular.specification.Reqs"
+    "org.asymetrik.modular.specification.Reqs",
+    "org.asymetrik.modular.specification.TestReq"
 })
 @SupportedSourceVersion(SourceVersion.RELEASE_21)
 public class RequirementProcessor extends AbstractProcessor {
@@ -56,16 +69,39 @@ public class RequirementProcessor extends AbstractProcessor {
         Pattern.CASE_INSENSITIVE | Pattern.DOTALL
     );
 
+    /**
+     * Index of the requirements with an id, written to the class output when compiling the main code, and read
+     * from the class path when compiling the tests. One line per requirement: {@code <id>=<module>|<sentence>}.
+     */
+    static final String INDEX = "META-INF/modular/requirements.properties";
+
+    private record Requirement(String module, String sentence) {}
+
+    /** Requirements with an id declared in this compilation, by id. */
+    private final Map<String, Requirement> declared = new LinkedHashMap<>();
+
+    /** Modules whose requirements are compiled now: their entries in an existing index are replaced. */
+    private final Set<String> compiledModules = new HashSet<>();
+
+    /** Requirements of the index found on the class path (the main code, when compiling tests), read once. */
+    private Map<String, Requirement> classPathIndex;
+
+    /** Whether this compilation has {@link TestReq}s, and the ids they cover. */
+    private boolean hasTests;
+    private final Set<String> covered = new HashSet<>();
+
     @Override
     public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
-        if (roundEnv.processingOver()) return false;
+        if (roundEnv.processingOver()) {
+            if (!declared.isEmpty()) writeIndex();
+            if (hasTests) reportCoverage();
+            return false;
+        }
 
         Set<Element> annotated = new LinkedHashSet<>();
         annotated.addAll(roundEnv.getElementsAnnotatedWith(Req.class));
         annotated.addAll(roundEnv.getElementsAnnotatedWith(Reqs.class));
 
-        // Ids are only compared within the round: an incremental build may not recompile every module.
-        Map<String, String> moduleById = new HashMap<>();
         for (Element element : annotated) {
             if (!(element instanceof PackageElement pkg)) continue;
 
@@ -77,9 +113,17 @@ public class RequirementProcessor extends AbstractProcessor {
                         req.value());
                     continue;
                 }
+                compiledModules.add(moduleName.get());
                 checkSentence(pkg, moduleName.get(), req.value());
-                checkUniqueId(pkg, moduleName.get(), req, moduleById);
+                checkUniqueId(pkg, moduleName.get(), req);
             }
+        }
+
+        // After the requirements of the round, so that tests compiled with them can reference them. Checked now
+        // rather than when processing is over, as only then do errors point at the test in the source.
+        for (Element element : roundEnv.getElementsAnnotatedWith(TestReq.class)) {
+            hasTests = true;
+            checkTestIds(element, element.getAnnotation(TestReq.class).value());
         }
         return true;
     }
@@ -110,13 +154,107 @@ public class RequirementProcessor extends AbstractProcessor {
         }
     }
 
-    private void checkUniqueId(PackageElement pkg, String moduleName, Req req, Map<String, String> moduleById) {
+    /** Ids are only compared within the compilation: an incremental build may not recompile every module. */
+    private void checkUniqueId(PackageElement pkg, String moduleName, Req req) {
         if (req.id().isBlank()) return;
-        String first = moduleById.putIfAbsent(req.id(), moduleName);
+        Requirement first = declared.putIfAbsent(req.id(), new Requirement(moduleName, req.value()));
         if (first != null) {
             error(pkg, "Duplicate requirement id '%s': already used in module '%s'. Requirement: \"%s\"",
-                req.id(), first, req.value());
+                req.id(), first.module(), req.value());
         }
+    }
+
+    /**
+     * Writes the index of the requirements with an id. Entries of an existing index are kept for the modules not
+     * compiled now, so that an incremental build does not lose them.
+     */
+    private void writeIndex() {
+        Map<String, Requirement> index = new TreeMap<>();
+        readIndex(StandardLocation.CLASS_OUTPUT).forEach((id, requirement) -> {
+            if (!compiledModules.contains(requirement.module())) index.put(id, requirement);
+        });
+        index.putAll(declared);
+
+        Properties properties = new Properties();
+        index.forEach((id, requirement) -> properties.setProperty(id, requirement.module() + "|" + requirement.sentence()));
+        try {
+            StringWriter content = new StringWriter();
+            properties.store(content, null);
+            // Drop the date comment that Properties writes, and sort, so that the index only changes with the requirements
+            List<String> lines = new ArrayList<>(content.toString().lines().filter(l -> !l.startsWith("#")).sorted().toList());
+            lines.add(0, "# Requirements with an id, written by RequirementProcessor: <id>=<module>|<sentence>");
+            FileObject file = processingEnv.getFiler().createResource(StandardLocation.CLASS_OUTPUT, "", INDEX);
+            try (Writer writer = file.openWriter()) {
+                writer.write(String.join("\n", lines) + "\n");
+            }
+        } catch (IOException e) {
+            processingEnv.getMessager().printMessage(Diagnostic.Kind.WARNING,
+                "Cannot write the requirement index " + INDEX + ": " + e.getMessage() +
+                ". @TestReq ids cannot be checked against these requirements.");
+        }
+    }
+
+    private Map<String, Requirement> readIndex(StandardLocation location) {
+        Map<String, Requirement> index = new TreeMap<>();
+        try {
+            FileObject file = processingEnv.getFiler().getResource(location, "", INDEX);
+            Properties properties = new Properties();
+            try (InputStream in = file.openInputStream()) {
+                properties.load(in);
+            }
+            for (String id : properties.stringPropertyNames()) {
+                String[] moduleAndSentence = properties.getProperty(id).split("\\|", 2);
+                if (moduleAndSentence.length == 2) {
+                    index.put(id, new Requirement(moduleAndSentence[0], moduleAndSentence[1]));
+                }
+            }
+        } catch (IOException | IllegalArgumentException noIndex) {
+            // No index there yet
+        }
+        return index;
+    }
+
+    /** Requirements known to tests: those of the index on the class path, and those of this compilation. */
+    private Map<String, Requirement> knownRequirements() {
+        if (classPathIndex == null) {
+            classPathIndex = readIndex(StandardLocation.CLASS_PATH);
+        }
+        Map<String, Requirement> known = new TreeMap<>(classPathIndex);
+        known.putAll(declared);
+        return known;
+    }
+
+    private void checkTestIds(Element test, String[] ids) {
+        Map<String, Requirement> known = knownRequirements();
+        if (known.isEmpty()) return; // reported once, by reportCoverage()
+
+        for (String id : ids) {
+            if (known.containsKey(id)) {
+                covered.add(id);
+            } else {
+                error(test, "Unknown requirement id '%s' in @TestReq: no @Req has this id. Known ids: %s",
+                    id, String.join(", ", known.keySet()));
+            }
+        }
+    }
+
+    /** Warns about the requirements with an id that no {@link TestReq} of this compilation covers. */
+    private void reportCoverage() {
+        Map<String, Requirement> known = knownRequirements();
+        if (known.isEmpty()) {
+            processingEnv.getMessager().printMessage(Diagnostic.Kind.WARNING,
+                "Cannot check @TestReq ids: no requirement with an id was found, neither in this compilation nor in " +
+                INDEX + " on the class path. Is RequirementProcessor enabled when compiling the main code?");
+            return;
+        }
+
+        known.forEach((id, requirement) -> {
+            if (!covered.contains(id)) {
+                processingEnv.getMessager().printMessage(Diagnostic.Kind.WARNING, String.format(
+                    "Requirement '%s' of module '%s' has no test: \"%s\". Add @TestReq(\"%s\") to a test that checks it.",
+                    id, requirement.module(), requirement.sentence(), id));
+            }
+        });
     }
 
     private Optional<String> findModuleName(PackageElement pkg) {
