@@ -1,1 +1,0 @@
-package org.asymetrik.modular.sample.fizzbuzz;
