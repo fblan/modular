@@ -108,7 +108,7 @@ class ModuleAnnotationProcessorTest {
         var result = compile(
             packageInfo("com.example.producer", "producer", "com.example.producer.exported"),
             classSource("com.example.producer.exported.ExportedClass", "com.example.producer.exported", "ExportedClass"),
-            packageInfo("com.example.consumer", "consumer", "."),
+            packageInfoRequiring("com.example.consumer", "consumer", List.of("producer"), "."),
             classSourceWithField(
                 "com.example.consumer.ConsumerClass", "com.example.consumer", "ConsumerClass",
                 "com.example.producer.exported.ExportedClass", "ExportedClass"
@@ -123,7 +123,7 @@ class ModuleAnnotationProcessorTest {
         var result = compile(
             packageInfo("com.example.producer", "producer", "com.example.producer.exported"),
             classSource("com.example.producer.InternalClass", "com.example.producer", "InternalClass"),
-            packageInfo("com.example.consumer", "consumer", "."),
+            packageInfoRequiring("com.example.consumer", "consumer", List.of("producer"), "."),
             classSourceWithField(
                 "com.example.consumer.ConsumerClass", "com.example.consumer", "ConsumerClass",
                 "com.example.producer.InternalClass", "InternalClass"
@@ -147,7 +147,7 @@ class ModuleAnnotationProcessorTest {
         var result = compile(
             packageInfo("com.example.producer", "producer", "com.example.producer.exported"),
             classSource("com.example.producer.InternalClass", "com.example.producer", "InternalClass"),
-            packageInfo("com.example.consumer", "consumer", "."),
+            packageInfoRequiring("com.example.consumer", "consumer", List.of("producer"), "."),
             classSourceWithFullyQualifiedLocalVariable(
                 "com.example.consumer.ConsumerClass", "com.example.consumer", "ConsumerClass",
                 "com.example.producer.InternalClass"
@@ -170,7 +170,7 @@ class ModuleAnnotationProcessorTest {
         var result = compile(
             packageInfo("com.example.producer", "producer", "com.example.producer.exported"),
             classSource("com.example.producer.InternalClass", "com.example.producer", "InternalClass"),
-            packageInfo("com.example.consumer", "consumer", "."),
+            packageInfoRequiring("com.example.consumer", "consumer", List.of("producer"), "."),
             classSourceWithUnusedImport(
                 "com.example.consumer.ConsumerClass", "com.example.consumer", "ConsumerClass",
                 "com.example.producer.InternalClass"
@@ -193,7 +193,7 @@ class ModuleAnnotationProcessorTest {
         var result = compile(
             packageInfo("com.example.producer", "producer", "com.example.producer.exported"),
             classSourceWithStaticMethod("com.example.producer.InternalClass", "com.example.producer", "InternalClass", "doThing"),
-            packageInfo("com.example.consumer", "consumer", "."),
+            packageInfoRequiring("com.example.consumer", "consumer", List.of("producer"), "."),
             classSourceWithStaticImportCall(
                 "com.example.consumer.ConsumerClass", "com.example.consumer", "ConsumerClass",
                 "com.example.producer.InternalClass", "doThing"
@@ -215,7 +215,7 @@ class ModuleAnnotationProcessorTest {
         var result = compile(
             packageInfo("com.example.producer", "producer", "com.example.producer.exported"),
             classSource("com.example.producer.InternalClass", "com.example.producer", "InternalClass"),
-            packageInfo("com.example.consumer", "consumer", "."),
+            packageInfoRequiring("com.example.consumer", "consumer", List.of("producer"), "."),
             classSourceWithWildcardImportAndLocalVariable(
                 "com.example.consumer.ConsumerClass", "com.example.consumer", "ConsumerClass",
                 "com.example.producer", "InternalClass"
@@ -240,7 +240,7 @@ class ModuleAnnotationProcessorTest {
         var fieldResult = compile(disableTreeScan,
             packageInfo("com.example.producer", "producer", "com.example.producer.exported"),
             classSource("com.example.producer.InternalClass", "com.example.producer", "InternalClass"),
-            packageInfo("com.example.consumer", "consumer", "."),
+            packageInfoRequiring("com.example.consumer", "consumer", List.of("producer"), "."),
             classSourceWithField(
                 "com.example.consumer.ConsumerClass", "com.example.consumer", "ConsumerClass",
                 "com.example.producer.InternalClass", "InternalClass"
@@ -251,7 +251,7 @@ class ModuleAnnotationProcessorTest {
         var bodyOnlyResult = compile(disableTreeScan,
             packageInfo("com.example.producer", "producer", "com.example.producer.exported"),
             classSource("com.example.producer.InternalClass", "com.example.producer", "InternalClass"),
-            packageInfo("com.example.consumer", "consumer", "."),
+            packageInfoRequiring("com.example.consumer", "consumer", List.of("producer"), "."),
             classSourceWithFullyQualifiedLocalVariable(
                 "com.example.consumer.ConsumerClass", "com.example.consumer", "ConsumerClass",
                 "com.example.producer.InternalClass"
@@ -265,7 +265,7 @@ class ModuleAnnotationProcessorTest {
         var result = compile(
             packageInfo("com.example.producer", "producer", "com.example.producer.exported"),
             classSource("com.example.producer.InternalClass", "com.example.producer", "InternalClass"),
-            packageInfo("com.example.consumer", "consumer", "."),
+            packageInfoRequiring("com.example.consumer", "consumer", List.of("producer"), "."),
             classSourceWithStringLiteral(
                 "com.example.consumer.ConsumerClass", "com.example.consumer", "ConsumerClass",
                 "com.example.producer.InternalClass"
@@ -288,7 +288,7 @@ class ModuleAnnotationProcessorTest {
         var result = compile(
             packageInfo("com.example.producer", "producer", "com.example.producer.exported"),
             classSource("com.example.producer.InternalClass", "com.example.producer", "InternalClass"),
-            packageInfo("com.example.consumer", "consumer", "."),
+            packageInfoRequiring("com.example.consumer", "consumer", List.of("producer"), "."),
             classSourceWithStringLiteral(
                 "com.example.consumer.ConsumerClass", "com.example.consumer", "ConsumerClass",
                 "some/random/path"
@@ -303,7 +303,7 @@ class ModuleAnnotationProcessorTest {
         var result = compile(
             packageInfo("com.example.producer", "producer", "com.example.producer.exported"),
             classSource("com.example.producer.exported.ExportedClass", "com.example.producer.exported", "ExportedClass"),
-            packageInfo("com.example.consumer", "consumer", "."),
+            packageInfoRequiring("com.example.consumer", "consumer", List.of("producer"), "."),
             classSourceWithLocalVariable(
                 "com.example.consumer.ConsumerClass", "com.example.consumer", "ConsumerClass",
                 "com.example.producer.exported.ExportedClass", "ExportedClass"
@@ -318,7 +318,7 @@ class ModuleAnnotationProcessorTest {
         var result = compile(
             packageInfo("com.example.producer", "producer", "com.example.producer.exported"),
             classSource("com.example.producer.InternalClass", "com.example.producer", "InternalClass"),
-            packageInfo("com.example.consumer", "consumer", "."),
+            packageInfoRequiring("com.example.consumer", "consumer", List.of("producer"), "."),
             classSourceWithGenericLocalVariable(
                 "com.example.consumer.ConsumerClass", "com.example.consumer", "ConsumerClass",
                 "com.example.producer.InternalClass"
@@ -334,19 +334,145 @@ class ModuleAnnotationProcessorTest {
             .contains("com.example.producer.InternalClass");
     }
 
+    @Test
+    void usingClassOfModuleNotRequired_producesRequiresViolationError() {
+        var result = compile(
+            packageInfo("com.example.producer", "producer", "."),
+            classSource("com.example.producer.ProducerClass", "com.example.producer", "ProducerClass"),
+            packageInfo("com.example.consumer", "consumer", "."),
+            classSourceWithField(
+                "com.example.consumer.ConsumerClass", "com.example.consumer", "ConsumerClass",
+                "com.example.producer.ProducerClass", "ProducerClass"
+            )
+        );
+
+        assertThat(result)
+            .filteredOn(d -> d.getKind() == ERROR)
+            .hasSize(1)
+            .first()
+            .extracting(d -> d.getMessage(null))
+            .asString()
+            .contains("Requires violation")
+            .contains("'consumer'")
+            .contains("'producer'")
+            .contains("Add \"producer\" to the requires of module 'consumer'");
+    }
+
+    @Test
+    void usingNonExportedClassOfModuleNotRequired_producesOnlyRequiresViolationError() {
+        var result = compile(
+            packageInfo("com.example.producer", "producer", "com.example.producer.exported"),
+            classSource("com.example.producer.InternalClass", "com.example.producer", "InternalClass"),
+            packageInfo("com.example.consumer", "consumer", "."),
+            classSourceWithField(
+                "com.example.consumer.ConsumerClass", "com.example.consumer", "ConsumerClass",
+                "com.example.producer.InternalClass", "InternalClass"
+            )
+        );
+
+        assertThat(result)
+            .filteredOn(d -> d.getKind() == ERROR)
+            .hasSize(1)
+            .first()
+            .extracting(d -> d.getMessage(null))
+            .asString()
+            .contains("Requires violation");
+    }
+
+    @Test
+    void requiresIsNotTransitive_producesRequiresViolationError() {
+        var result = compile(
+            packageInfo("com.example.base", "base", "."),
+            classSource("com.example.base.BaseClass", "com.example.base", "BaseClass"),
+            packageInfoRequiring("com.example.middle", "middle", List.of("base"), "."),
+            classSourceWithField(
+                "com.example.middle.MiddleClass", "com.example.middle", "MiddleClass",
+                "com.example.base.BaseClass", "BaseClass"
+            ),
+            packageInfoRequiring("com.example.top", "top", List.of("middle"), "."),
+            classSourceWithField(
+                "com.example.top.TopClass", "com.example.top", "TopClass",
+                "com.example.base.BaseClass", "BaseClass"
+            )
+        );
+
+        assertThat(result)
+            .filteredOn(d -> d.getKind() == ERROR)
+            .hasSize(1)
+            .first()
+            .extracting(d -> d.getMessage(null))
+            .asString()
+            .contains("Requires violation")
+            .contains("'top'")
+            .contains("'base'");
+    }
+
+    @Test
+    void severalTypesFromModuleNotRequired_produceSingleRequiresViolation() {
+        var result = compile(
+            packageInfo("com.example.producer", "producer", "."),
+            classSource("com.example.producer.First", "com.example.producer", "First"),
+            classSource("com.example.producer.Second", "com.example.producer", "Second"),
+            packageInfo("com.example.consumer", "consumer", "."),
+            inMemorySource("com.example.consumer.ConsumerClass",
+                "package com.example.consumer;\n" +
+                "public class ConsumerClass { com.example.producer.First a; com.example.producer.Second b; }\n")
+        );
+
+        assertThat(result).filteredOn(d -> d.getKind() == ERROR).hasSize(1);
+    }
+
+    @Test
+    void duplicateModuleNames_producesDuplicateModuleNameError() {
+        var result = compile(
+            packageInfo("com.example.first", "same", "."),
+            classSource("com.example.first.FirstClass", "com.example.first", "FirstClass"),
+            packageInfo("com.example.second", "same", "."),
+            classSource("com.example.second.SecondClass", "com.example.second", "SecondClass")
+        );
+
+        assertThat(result)
+            .filteredOn(d -> d.getKind() == ERROR)
+            .hasSize(1)
+            .first()
+            .extracting(d -> d.getMessage(null))
+            .asString()
+            .contains("Duplicate module name")
+            .contains("'same'")
+            .contains("com.example.first")
+            .contains("com.example.second");
+    }
+
+    @Test
+    void requiringModuleNotInCompilation_producesNoErrors() {
+        // Could be a module compiled earlier (incremental build): only ModularVerifier reports unknown names.
+        var result = compile(
+            packageInfoRequiring("com.example.consumer", "consumer", List.of("elsewhere"), "."),
+            classSource("com.example.consumer.ConsumerClass", "com.example.consumer", "ConsumerClass")
+        );
+
+        assertThat(result).filteredOn(d -> d.getKind() == ERROR).isEmpty();
+    }
+
     // --- helpers ---
 
     private static JavaFileObject packageInfo(String pkg, String moduleName, String... exports) {
-        String exportsLiteral = String.join(", ", java.util.Arrays.stream(exports)
-            .map(e -> "\"" + e + "\"")
-            .toArray(String[]::new));
+        return packageInfoRequiring(pkg, moduleName, List.of(), exports);
+    }
+
+    private static JavaFileObject packageInfoRequiring(String pkg, String moduleName, List<String> requires,
+                                                       String... exports) {
         String source = String.format(
-            "@Module(name = \"%s\", exports = {%s})%n" +
+            "@Module(name = \"%s\", exports = {%s}, requires = {%s})%n" +
             "package %s;%n" +
             "import org.asymetrik.modular.annotations.Module;%n",
-            moduleName, exportsLiteral, pkg
+            moduleName, quotedList(List.of(exports)), quotedList(requires), pkg
         );
         return inMemorySource(pkg + ".package-info", source);
+    }
+
+    private static String quotedList(List<String> values) {
+        return String.join(", ", values.stream().map(v -> "\"" + v + "\"").toList());
     }
 
     private static JavaFileObject classSource(String fqn, String pkg, String simpleName) {

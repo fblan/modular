@@ -25,4 +25,11 @@ import java.lang.annotation.Target;
 public @interface Module {
 	String name();
 	String[] exports();
+
+	/**
+	 * Names of the modules this module may use. A class of this module may only depend on classes of
+	 * the modules listed here (and only on their exported packages). Not transitive: if A requires B
+	 * and B requires C, A must also require C to use it.
+	 */
+	String[] requires() default {};
 }

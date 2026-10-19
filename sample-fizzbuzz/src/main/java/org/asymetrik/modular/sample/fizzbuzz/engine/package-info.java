@@ -16,7 +16,7 @@
 /**
  * Turns numbers into FizzBuzz words, using the exported API of the rules module.
  */
-@Module(name = "engine", exports = {"."})
+@Module(name = "engine", exports = {"."}, requires = {"rules"})
 package org.asymetrik.modular.sample.fizzbuzz.engine;
 
 import org.asymetrik.modular.annotations.Module;
