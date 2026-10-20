@@ -17,6 +17,9 @@
  * The application itself. Nothing depends on it, so it exports nothing.
  */
 @Module(name = "app", exports = {}, requires = {"engine", "rules"})
+@Req(id = "APP-1", value = "Where no argument is given, the app shall print FizzBuzz up to 100.")
+@Req(id = "APP-2", value = "If the first argument is not a number, then the app shall stop with an error.")
 package org.asymetrik.modular.sample.fizzbuzz.app;
 
 import org.asymetrik.modular.annotations.Module;
+import org.asymetrik.modular.specification.Req;

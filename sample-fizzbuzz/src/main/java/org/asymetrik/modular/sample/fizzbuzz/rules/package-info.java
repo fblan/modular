@@ -17,6 +17,9 @@
  * FizzBuzz rules. Only this package is exported: {@code internal} stays private to the module.
  */
 @Module(name = "rules", exports = {"."})
+@Req(id = "RUL-1", value = "The rules shall provide a Fizz rule matching the multiples of 3.")
+@Req(id = "RUL-2", value = "The rules shall provide a Buzz rule matching the multiples of 5.")
 package org.asymetrik.modular.sample.fizzbuzz.rules;
 
 import org.asymetrik.modular.annotations.Module;
+import org.asymetrik.modular.specification.Req;

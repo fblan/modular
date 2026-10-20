@@ -14,6 +14,7 @@
         <module>annotations</module>
         <module>verification</module>
         <module>processor</module>
+        <module>specification</module>
         <module>sample-fizzbuzz</module>
     </modules>
 

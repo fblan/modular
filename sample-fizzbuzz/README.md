@@ -1,7 +1,7 @@
 # Sample: FizzBuzz
 
 A small FizzBuzz application, split into modular `@Module`s, to play with the library.
-Its only dependencies are modular's `annotations` and `processor`.
+Its only dependencies are modular's `annotations`, `processor` and `specification`.
 
 ## Modules
 
@@ -22,6 +22,36 @@ or through a virtual module declared with `@ExternalModule`. A package of yours 
 name, so it needs an `@ExternalModule`.
 The sample only uses `java.*`.
 
+## Requirements
+
+Each module states what it must do with `@Req`, next to `@Module`, as sentences in EARS format. For example, in
+`engine/package-info.java`:
+
+```java
+@Module(name = "engine", exports = {"."}, requires = {"rules"})
+@Req(id = "ENG-1", value = "When no rule matches a number, the engine shall say the number itself.")
+@Req(id = "ENG-2", value = "When several rules match a number, the engine shall concatenate their words in rule order.")
+@Req(id = "ENG-3", value = "While the upper bound is below 1, the engine shall say nothing.")
+```
+
+`app` also uses the *Where* (optional feature) and *If …, then* (unwanted behaviour) patterns, and `rules` the
+plain *The … shall* one.
+
+The unit tests reference the requirements they check with `@TestReq`, for example in `FizzBuzzTest`:
+
+```java
+@Test
+@TestReq("ENG-2")
+void concatenatesTheWordsInRuleOrder() { ... }
+```
+
+When the tests compile, an unknown id is an error, and a requirement without a test is a warning. `APP-1` has no
+test on purpose, so `mvn clean install` shows:
+
+```
+[WARNING] Requirement 'APP-1' of module 'app' has no test: "Where no argument is given, the app shall print FizzBuzz up to 100.". Add @TestReq("APP-1") to a test that checks it.
+```
+
 ## Build and run
 
 From the repository root:
@@ -31,8 +61,8 @@ mvn clean install
 java -cp sample-fizzbuzz/target/classes org.asymetrik.modular.sample.fizzbuzz.app.FizzBuzzApp 15
 ```
 
-The module rules are checked when the code compiles, by the annotation processor declared in
-`annotationProcessorPaths` in `pom.xml`. The `@Module` annotation isn't needed at runtime.
+The module rules and the requirements are checked when the code compiles, by the two annotation processors
+declared in `annotationProcessorPaths` in `pom.xml`. Neither `@Module` nor `@Req` is needed at runtime.
 
 ## Things to try
 
@@ -62,3 +92,10 @@ Rebuild with `mvn compile -pl sample-fizzbuzz` after each change.
    ```
 6. **Nest a module.** Add a `package-info.java` with `@Module` in `rules.internal`. The build fails with a
    *Module hierarchy violation*: modules cannot be nested.
+7. **Break a requirement.** In `engine/package-info.java`, change ENG-3 to
+   `"While the upper bound is below 1, the system shall say nothing."`. The build fails: the subject of a
+   requirement must be its module, *the engine*. Then try a sentence that is not EARS, such as
+   `"The engine must say nothing."`: the error lists the EARS patterns to use.
+8. **Reference a missing requirement.** In `FizzBuzzTest`, change `@TestReq("ENG-3")` to `@TestReq("ENG-33")` and
+   run `mvn test-compile -pl sample-fizzbuzz`. The test build fails: no `@Req` has this id. Back to `"ENG-3"`, then
+   remove the `@TestReq`: the build passes again, with a warning that ENG-3 has no test.
