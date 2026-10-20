@@ -1,0 +1,13 @@
+{
+  "name": "modular",
+  "description": "Use modular (org.asymetrik.modular) in a Java project: set up the build, declare @Module boundaries, fix violations, write EARS requirements (@Req) and link tests (@TestReq)",
+  "version": "0.1.0",
+  "author": {
+    "name": "Frédéric Blanc",
+    "email": "blanc.fr.dev@gmail.com"
+  },
+  "homepage": "https://github.com/fblan/modular",
+  "repository": "https://github.com/fblan/modular",
+  "license": "Apache-2.0",
+  "keywords": ["java", "modules", "architecture", "annotation-processor", "requirements", "ears"]
+}

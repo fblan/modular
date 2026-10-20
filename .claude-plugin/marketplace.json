@@ -1,0 +1,15 @@
+{
+  "name": "asymetrik",
+  "description": "Claude Code plugins for modular: modules for Java packages, checked at compile time",
+  "owner": {
+    "name": "Frédéric Blanc",
+    "email": "blanc.fr.dev@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "modular",
+      "source": "./claude/plugins/modular",
+      "description": "Use modular in a Java project: set up the build, declare @Module boundaries, fix violations, write EARS requirements (@Req) and link tests (@TestReq)"
+    }
+  ]
+}
