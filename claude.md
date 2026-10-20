@@ -178,9 +178,9 @@ mvn test -pl verification
 - Test modules: `org.asymetryk.modulyth.testedmodules.*`
 
 ## Development Status
-- Version: 1.0-SNAPSHOT
-- GroupId: org.asymetryk.modulyth
-- Current implementation: ModularVerifier.verify() always returns Invalid() - implementation in progress
+- Version: 0.1.0-SNAPSHOT (last release: 0.0.5)
+- GroupId: org.asymetrik.modular
+- Published modules: `annotations`, `processor`, `verification`, `specification` (`sample-fizzbuzz` is excluded)
 
 ## Specifications
 - **Module Annotation Feature**: `src/main/doc/SPEC_20260108_0001_module_annotation.md`
