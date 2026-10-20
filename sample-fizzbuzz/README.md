@@ -16,6 +16,11 @@ Packages are relative to `org.asymetrik.modular.sample.fizzbuzz`.
 
 A module may only use the modules it lists in `requires`, and only their exported packages.
 `app` uses `Rules` directly, so it requires `rules` itself: `requires` is not transitive.
+Outside the modules, only `java.*` can be used freely. Any other package must be required, either by its JPMS
+module name (a JDK module such as `java.desktop`, or a library jar's module name such as `jakarta.validation`),
+or through a virtual module declared with `@ExternalModule`. A package of yours without `@Module` has no JPMS
+name, so it needs an `@ExternalModule`.
+The sample only uses `java.*`.
 
 ## Build and run
 
@@ -42,5 +47,18 @@ Rebuild with `mvn compile -pl sample-fizzbuzz` after each change.
 4. **Drop a requires.** Remove `"rules"` from the requires of `app/package-info.java`. The build fails with a
    *Requires violation*: `app` uses `Rules` but does not declare it needs the `rules` module, even though
    `engine` requires it.
-5. **Nest a module.** Add a `package-info.java` with `@Module` in `rules.internal`. The build fails with a
+5. **Use an external package.** In `FizzBuzzApp`, replace `forEach(System.out::println)` with
+   `forEach(line -> javax.swing.JOptionPane.showMessageDialog(null, line))`. The build fails with a
+   *Requires violation*: `javax.swing` is not `java.*`, and it belongs to the JDK module `java.desktop`. Add
+   `"java.desktop"` to the requires of `app` and the build passes.
+
+   To group packages under a name of your own instead, declare a virtual module in a new
+   `external/package-info.java`, and require `"swing"` instead of `"java.desktop"`:
+   ```java
+   @ExternalModule(name = "swing", packages = {"javax.swing"})
+   package org.asymetrik.modular.sample.fizzbuzz.external;
+
+   import org.asymetrik.modular.annotations.ExternalModule;
+   ```
+6. **Nest a module.** Add a `package-info.java` with `@Module` in `rules.internal`. The build fails with a
    *Module hierarchy violation*: modules cannot be nested.

@@ -15,7 +15,14 @@
  */
 package org.asymetrik.modular.processor;
 
+import java.io.IOException;
+import java.lang.module.FindException;
+import java.lang.module.ModuleFinder;
+import java.lang.module.ModuleReference;
+import java.net.URI;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -33,15 +40,20 @@ import javax.lang.model.SourceVersion;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
+import javax.lang.model.element.ModuleElement;
+import javax.lang.model.element.NestingKind;
 import javax.lang.model.element.PackageElement;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.ArrayType;
 import javax.lang.model.type.DeclaredType;
+import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.type.WildcardType;
 import javax.lang.model.util.SimpleTypeVisitor14;
 import javax.tools.Diagnostic;
+import javax.tools.FileObject;
+import javax.tools.StandardLocation;
 
 import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.CompilationUnitTree;
@@ -54,9 +66,15 @@ import com.sun.source.util.TreePath;
 import com.sun.source.util.TreePathScanner;
 import com.sun.source.util.Trees;
 
+import org.asymetrik.modular.annotations.ExternalModule;
+import org.asymetrik.modular.annotations.ExternalModules;
 import org.asymetrik.modular.annotations.Module;
 
-@SupportedAnnotationTypes("org.asymetrik.modular.annotations.Module")
+@SupportedAnnotationTypes({
+    "org.asymetrik.modular.annotations.Module",
+    "org.asymetrik.modular.annotations.ExternalModule",
+    "org.asymetrik.modular.annotations.ExternalModules"
+})
 @SupportedOptions(ModuleAnnotationProcessor.TREE_SCAN_OPTION)
 @SupportedSourceVersion(SourceVersion.RELEASE_21)
 public class ModuleAnnotationProcessor extends AbstractProcessor {
@@ -70,6 +88,12 @@ public class ModuleAnnotationProcessor extends AbstractProcessor {
     /** Compiler Tree API entry point; only available when running under javac and when not disabled
      *  via {@link #TREE_SCAN_OPTION}. Null-safe: tree-based scanning is simply skipped if unavailable. */
     private Trees trees;
+
+    /** Virtual modules declared with {@link ExternalModule} in the current round. */
+    private List<ExternalModuleEntry> externalModules = List.of();
+
+    /** JPMS module name by package, as found by {@link #findJpmsModuleName(TypeElement)}. */
+    private final Map<String, Optional<String>> jpmsModuleByPackage = new HashMap<>();
 
     private record ModuleEntry(String name, String packageName, List<String> exports, List<String> requires,
                                Element element) {
@@ -85,6 +109,18 @@ public class ModuleAnnotationProcessor extends AbstractProcessor {
             if (!isDescendantOf(parent)) return 0;
             String relative = this.packageName.substring(parent.packageName.length() + 1);
             return relative.split("\\.").length;
+        }
+    }
+
+    /** A virtual module: named packages outside any {@link Module}, each covering its sub-packages. */
+    private record ExternalModuleEntry(String name, List<String> packages, PackageElement declaringPackage) {
+        /** Length of the longest listed package covering {@code packageName}, or -1 if none does. */
+        int coverageOf(String packageName) {
+            return packages.stream()
+                .filter(p -> packageName.equals(p) || packageName.startsWith(p + "."))
+                .mapToInt(String::length)
+                .max()
+                .orElse(-1);
         }
     }
 
@@ -145,8 +181,21 @@ public class ModuleAnnotationProcessor extends AbstractProcessor {
             }
         }
 
+        List<ExternalModuleEntry> externals = new ArrayList<>();
+        Set<Element> externalDeclarations = new LinkedHashSet<>();
+        externalDeclarations.addAll(roundEnv.getElementsAnnotatedWith(ExternalModule.class));
+        externalDeclarations.addAll(roundEnv.getElementsAnnotatedWith(ExternalModules.class));
+        for (Element element : externalDeclarations) {
+            if (element instanceof PackageElement pkg) {
+                for (ExternalModule annotation : pkg.getAnnotationsByType(ExternalModule.class)) {
+                    externals.add(new ExternalModuleEntry(annotation.name(), List.of(annotation.packages()), pkg));
+                }
+            }
+        }
+        this.externalModules = externals;
+
         checkHierarchyViolations(modules);
-        checkDuplicateModuleNames(modules);
+        checkDuplicateModuleNames(modules, externals);
         checkDependencyViolations(roundEnv, modules);
 
         return true;
@@ -174,24 +223,35 @@ public class ModuleAnnotationProcessor extends AbstractProcessor {
         }
     }
 
-    /** Modules are referenced by name in {@code requires}, so names must be unique. Unknown names in
-     *  {@code requires} are not reported here: in an incremental build, a module missing from this round
-     *  may simply not be recompiled. {@code ModularVerifier} checks them, as it sees every module. */
-    private void checkDuplicateModuleNames(List<ModuleEntry> modules) {
-        Map<String, ModuleEntry> firstByName = new LinkedHashMap<>();
+    /** Modules and virtual modules are referenced by name in {@code requires}, so names must be unique
+     *  across both. Unknown names in {@code requires} are not reported here: in an incremental build, a
+     *  module missing from this round may simply not be recompiled. {@code ModularVerifier} checks them,
+     *  as it sees every module. */
+    private void checkDuplicateModuleNames(List<ModuleEntry> modules, List<ExternalModuleEntry> externals) {
+        Map<String, String> firstDeclarationByName = new LinkedHashMap<>();
         for (ModuleEntry module : modules) {
-            ModuleEntry first = firstByName.putIfAbsent(module.name(), module);
-            if (first != null) {
-                processingEnv.getMessager().printMessage(
-                    Diagnostic.Kind.ERROR,
-                    String.format(
-                        "Duplicate module name: '%s' is declared by both %s and %s. " +
-                        "Module names must be unique, as other modules reference them in 'requires'.",
-                        module.name(), first.packageName(), module.packageName()
-                    ),
-                    module.element()
-                );
-            }
+            checkUniqueName(firstDeclarationByName, module.name(), module.packageName(), module.element());
+        }
+        for (ExternalModuleEntry external : externals) {
+            Element element = external.declaringPackage();
+            checkUniqueName(firstDeclarationByName, external.name(),
+                "@ExternalModule on " + element, element);
+        }
+    }
+
+    private void checkUniqueName(Map<String, String> firstDeclarationByName, String name, String declaration,
+                                 Element element) {
+        String first = firstDeclarationByName.putIfAbsent(name, declaration);
+        if (first != null) {
+            processingEnv.getMessager().printMessage(
+                Diagnostic.Kind.ERROR,
+                String.format(
+                    "Duplicate module name: '%s' is declared by both %s and %s. " +
+                    "Module names must be unique, as other modules reference them in 'requires'.",
+                    name, first, declaration
+                ),
+                element
+            );
         }
     }
 
@@ -236,27 +296,21 @@ public class ModuleAnnotationProcessor extends AbstractProcessor {
         String depPackage = processingEnv.getElementUtils()
             .getPackageOf(dep).getQualifiedName().toString();
 
+        if (isJavaPackage(depPackage)) return;
+
         Optional<ModuleEntry> providerOpt = findModuleForPackage(depPackage, modules);
-        if (providerOpt.isEmpty()) return;
+        if (providerOpt.isEmpty()) {
+            reportExternalDependencyViolationIfAny(typeElement, consumer, dep, depQualifiedName, depPackage, reported,
+                detectionNote);
+            return;
+        }
         ModuleEntry provider = providerOpt.get();
         if (provider.packageName().equals(consumer.packageName())) return;
 
         if (!consumer.doesRequire(provider)) {
-            // One error per required module is enough to explain what to add to 'requires'.
-            if (!reported.add("requires:" + provider.name())) return;
-            String message = String.format(
-                "Requires violation: '%s' (%s) uses '%s' from module '%s' (%s) without requiring it. " +
-                "Add \"%s\" to the requires of module '%s' or '%s' should not use this type.",
-                consumer.name(), consumer.packageName(),
-                depQualifiedName,
-                provider.name(), provider.packageName(),
-                provider.name(), consumer.name(),
-                consumer.name()
-            );
-            if (detectionNote != null) {
-                message += " [detected via: " + detectionNote + "]";
-            }
-            processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR, message, typeElement);
+            reportRequiresViolation(typeElement, consumer, depQualifiedName,
+                "module '" + provider.name() + "' (" + provider.packageName() + ")", provider.name(),
+                reported, detectionNote);
             return;
         }
 
@@ -280,6 +334,68 @@ public class ModuleAnnotationProcessor extends AbstractProcessor {
             provider.name(), provider.packageName(),
             depPackage,
             provider.name(), depPackage,
+            consumer.name()
+        );
+        if (detectionNote != null) {
+            message += " [detected via: " + detectionNote + "]";
+        }
+        processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR, message, typeElement);
+    }
+
+    /** A dependency outside every module: it must be in a virtual module the consumer requires. */
+    /** A dependency outside every module: it must be in a virtual module, or else a JPMS module, that the
+     *  consumer requires. */
+    private void reportExternalDependencyViolationIfAny(TypeElement typeElement, ModuleEntry consumer,
+                                                        TypeElement dep, String depQualifiedName, String depPackage,
+                                                        Set<String> reported, String detectionNote) {
+        Optional<ExternalModuleEntry> externalOpt = findExternalModuleForPackage(depPackage);
+        if (externalOpt.isPresent()) {
+            ExternalModuleEntry external = externalOpt.get();
+            if (consumer.requires().contains(external.name())) return;
+            reportRequiresViolation(typeElement, consumer, depQualifiedName,
+                "external module '" + external.name() + "' " + external.packages(), external.name(),
+                reported, detectionNote);
+            return;
+        }
+
+        Optional<String> jpmsModule = findJpmsModuleName(dep);
+        if (jpmsModule.isPresent()) {
+            if (consumer.requires().contains(jpmsModule.get())) return;
+            reportRequiresViolation(typeElement, consumer, depQualifiedName,
+                "JPMS module '" + jpmsModule.get() + "'", jpmsModule.get(),
+                reported, detectionNote);
+            return;
+        }
+
+        // One error per package is enough to explain which @ExternalModule to declare.
+        if (!reported.add("unmanaged:" + depPackage)) return;
+        String message = String.format(
+            "Unmanaged dependency: '%s' (%s) uses '%s', which is in no module and has no JPMS module name. " +
+            "Only java.* packages can be used freely: declare an @ExternalModule covering package '%s' and add it " +
+            "to the requires of module '%s', or '%s' should not use this type.",
+            consumer.name(), consumer.packageName(),
+            depQualifiedName,
+            depPackage, consumer.name(),
+            consumer.name()
+        );
+        if (detectionNote != null) {
+            message += " [detected via: " + detectionNote + "]";
+        }
+        processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR, message, typeElement);
+    }
+
+    private void reportRequiresViolation(TypeElement typeElement, ModuleEntry consumer, String depQualifiedName,
+                                         String providerDescription, String providerName,
+                                         Set<String> reported, String detectionNote) {
+        // One error per required module is enough to explain what to add to 'requires'.
+        if (!reported.add("requires:" + providerName)) return;
+        String message = String.format(
+            "Requires violation: '%s' (%s) uses '%s' from %s without requiring it. " +
+            "Add \"%s\" to the requires of module '%s' or '%s' should not use this type.",
+            consumer.name(), consumer.packageName(),
+            depQualifiedName,
+            providerDescription,
+            providerName, consumer.name(),
             consumer.name()
         );
         if (detectionNote != null) {
@@ -351,9 +467,17 @@ public class ModuleAnnotationProcessor extends AbstractProcessor {
 
             @Override
             public Void visitMemberSelect(MemberSelectTree node, Void p) {
+                if (isArrayMember(node)) return super.visitMemberSelect(node, p);
                 resolveOwningType(trees.getElement(getCurrentPath()))
                     .ifPresent(te -> addIfNew(referencedTypes, referencedSeen, te));
                 return super.visitMemberSelect(node, p);
+            }
+
+            /** {@code array.length} and {@code array.clone()} belong to javac's internal {@code Array}
+             *  class, which is in no package: not a dependency. */
+            private boolean isArrayMember(MemberSelectTree node) {
+                TypeMirror selected = trees.getTypeMirror(new TreePath(getCurrentPath(), node.getExpression()));
+                return selected != null && selected.getKind() == TypeKind.ARRAY;
             }
 
             @Override
@@ -449,6 +573,68 @@ public class ModuleAnnotationProcessor extends AbstractProcessor {
         return modules.stream()
             .filter(m -> packageName.equals(m.packageName()) || packageName.startsWith(m.packageName() + "."))
             .reduce((m1, m2) -> m1.packageName().length() > m2.packageName().length() ? m1 : m2);
+    }
+
+    private static boolean isJavaPackage(String packageName) {
+        return packageName.equals("java") || packageName.startsWith("java.");
+    }
+
+    /**
+     * The JPMS module of a type, as JPMS itself would name it: its named module (JDK, module path), else the
+     * module of the jar or directory it is loaded from on the class path (its {@code module-info}, its
+     * {@code Automatic-Module-Name}, or the name derived from the jar's file name). Empty for a type in no jar
+     * with a module name, such as a source of the current compilation.
+     */
+    private Optional<String> findJpmsModuleName(TypeElement type) {
+        ModuleElement module = processingEnv.getElementUtils().getModuleOf(type);
+        if (module != null && !module.isUnnamed()) {
+            return Optional.of(module.getQualifiedName().toString());
+        }
+        String packageName = processingEnv.getElementUtils().getPackageOf(type).getQualifiedName().toString();
+        return jpmsModuleByPackage.computeIfAbsent(packageName, p -> findClassPathModuleName(p, type));
+    }
+
+    private Optional<String> findClassPathModuleName(String packageName, TypeElement type) {
+        TypeElement topLevel = type;
+        while (topLevel.getNestingKind() != NestingKind.TOP_LEVEL
+               && topLevel.getEnclosingElement() instanceof TypeElement enclosing) {
+            topLevel = enclosing;
+        }
+        try {
+            FileObject classFile = processingEnv.getFiler().getResource(
+                StandardLocation.CLASS_PATH, packageName, topLevel.getSimpleName() + ".class");
+            return classPathRoot(classFile.toUri(), packageName)
+                .flatMap(root -> ModuleFinder.of(root).findAll().stream().findFirst())
+                .map(ModuleReference::descriptor)
+                .map(descriptor -> descriptor.name());
+        } catch (IOException | IllegalArgumentException | FindException | SecurityException notFound) {
+            return Optional.empty();
+        }
+    }
+
+    /** The jar or directory holding a class file, from the class file's URI. */
+    private static Optional<Path> classPathRoot(URI classFile, String packageName) {
+        if ("jar".equals(classFile.getScheme())) {
+            String jar = classFile.getRawSchemeSpecificPart();
+            int separator = jar.indexOf("!/");
+            return separator < 0 ? Optional.empty() : Optional.of(Path.of(URI.create(jar.substring(0, separator))));
+        }
+        if ("file".equals(classFile.getScheme())) {
+            Path root = Path.of(classFile).getParent();
+            int depth = packageName.isEmpty() ? 0 : packageName.split("\\.").length;
+            for (int i = 0; i < depth && root != null; i++) {
+                root = root.getParent();
+            }
+            return Optional.ofNullable(root);
+        }
+        return Optional.empty();
+    }
+
+    /** The virtual module whose listed package covers {@code packageName} most specifically, if any. */
+    private Optional<ExternalModuleEntry> findExternalModuleForPackage(String packageName) {
+        return externalModules.stream()
+            .filter(e -> e.coverageOf(packageName) >= 0)
+            .reduce((e1, e2) -> e1.coverageOf(packageName) >= e2.coverageOf(packageName) ? e1 : e2);
     }
 
     private boolean isPackageExported(String packageName, ModuleEntry module) {

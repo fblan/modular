@@ -15,13 +15,23 @@
  */
 package org.asymetrik.modular.verification;
 
+import java.lang.module.FindException;
+import java.lang.module.ModuleFinder;
+import java.lang.module.ModuleReference;
+import java.net.URISyntaxException;
+import java.nio.file.Path;
+import java.security.CodeSource;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
+import org.asymetrik.modular.annotations.ExternalModule;
+import org.asymetrik.modular.annotations.ExternalModules;
 import org.asymetrik.modular.annotations.Module;
 
 import com.tngtech.archunit.core.domain.JavaClass;
@@ -45,7 +55,7 @@ public class ModularVerifier {
 	 */
 	public sealed interface Invalid extends Result permits ModularVerifier.NestedModuleViolation, ModularVerifier.ExportViolation,
 		ModularVerifier.RequiresViolation, ModularVerifier.DuplicateModuleNameViolation,
-		ModularVerifier.UnknownRequiredModuleViolation {}
+		ModularVerifier.UnknownRequiredModuleViolation, ModularVerifier.UnmanagedDependencyViolation {}
 
 	/**
 	 * Represents a violation where a module is nested within another module's package hierarchy.
@@ -175,7 +185,8 @@ public class ModularVerifier {
 	}
 
 	/**
-	 * Represents a violation where a module requires a module name that no module declares.
+	 * Represents a violation where a module requires a name that is neither a module, nor a virtual module, nor
+	 * a JDK module, nor the JPMS module of a class used by the scanned classes.
 	 */
 	public record UnknownRequiredModuleViolation(
 		String moduleName,
@@ -187,10 +198,55 @@ public class ModularVerifier {
 			return String.format(
 				"Unknown required module detected:%n" +
 				"  Module: '%s' (%s)%n" +
-				"  Requires: '%s' (no module has this name)%n" +
+				"  Requires: '%s' (no module, virtual module, JDK module or used JPMS module has this name)%n" +
 				"  Suggestion: Fix the name in requires, or remove it",
 				moduleName, modulePackage, requiredModuleName
 			);
+		}
+	}
+
+	/**
+	 * Represents a violation where a module uses a class that is neither in {@code java.*}, nor in a module,
+	 * nor in a virtual module declared with {@link ExternalModule}.
+	 */
+	public record UnmanagedDependencyViolation(
+		String consumerModuleName,
+		String consumerPackage,
+		String consumerClass,
+		String usedClass,
+		String usedClassPackage
+	) implements Invalid {
+
+		public String formatError() {
+			return String.format(
+				"Unmanaged dependency detected:%n" +
+				"  Consumer: '%s' (%s)%n" +
+				"  Consumer class: %s%n" +
+				"  Used class: %s%n" +
+				"  Package: %s (in no module, and only java.* can be used freely)%n" +
+				"  Suggestion: Declare an @ExternalModule covering package '%s' and add it to the requires of '%s', " +
+				"or '%s' should not use this class",
+				consumerModuleName, consumerPackage,
+				consumerClass,
+				usedClass,
+				usedClassPackage,
+				usedClassPackage, consumerModuleName,
+				consumerModuleName
+			);
+		}
+	}
+
+	/**
+	 * A virtual module: named packages outside any module, each covering its sub-packages.
+	 */
+	private record ExternalModuleInfo(String name, String[] packages) {
+		/** Length of the longest listed package covering {@code packageName}, or -1 if none does. */
+		int coverageOf(String packageName) {
+			return Arrays.stream(packages)
+				.filter(p -> packageName.equals(p) || packageName.startsWith(p + "."))
+				.mapToInt(String::length)
+				.max()
+				.orElse(-1);
 		}
 	}
 
@@ -214,6 +270,9 @@ public class ModularVerifier {
 
 	private final List<String> packages;
 
+	/** JPMS module name by package, as found by {@link #findJpmsModuleName(JavaClass)}. */
+	private final Map<String, Optional<String>> jpmsModuleByPackage = new HashMap<>();
+
 	public ModularVerifier(final List<String> packages) {
 		this.packages = packages;
 	}
@@ -229,8 +288,9 @@ public class ModularVerifier {
 	public Result verify(){
 		JavaClasses importedClasses = new ClassFileImporter().importPackages(this.packages.toArray(new String[0]));
 
-		// Find all modules
+		// Find all modules and virtual modules
 		List<ModuleInfo> modules = findAllModules(importedClasses);
+		List<ExternalModuleInfo> externalModules = findAllExternalModules(importedClasses);
 
 		// Check for nested module hierarchies
 		for (ModuleInfo parent : modules) {
@@ -248,13 +308,14 @@ public class ModularVerifier {
 		}
 
 		// Check that module names are unique and that required modules exist
-		Result namesCheck = checkModuleNames(modules);
+		Set<String> usedJpmsModules = collectUsedJpmsModules(importedClasses, modules);
+		Result namesCheck = checkModuleNames(modules, externalModules, usedJpmsModules);
 		if (namesCheck instanceof Invalid) {
 			return namesCheck;
 		}
 
 		// Check for requires and export violations
-		Result dependencyCheck = checkDependencyViolations(importedClasses, modules);
+		Result dependencyCheck = checkDependencyViolations(importedClasses, modules, externalModules);
 		if (dependencyCheck instanceof Invalid) {
 			return dependencyCheck;
 		}
@@ -262,18 +323,28 @@ public class ModularVerifier {
 		return new Valid();
 	}
 
-	private Result checkModuleNames(List<ModuleInfo> modules) {
-		Map<String, ModuleInfo> byName = new HashMap<>();
+	private Result checkModuleNames(List<ModuleInfo> modules, List<ExternalModuleInfo> externalModules,
+									Set<String> usedJpmsModules) {
+		// Modules and virtual modules share one namespace, as both are referenced by name in requires
+		Map<String, String> declarationByName = new HashMap<>();
 		for (ModuleInfo module : modules) {
-			ModuleInfo first = byName.putIfAbsent(module.name(), module);
+			String first = declarationByName.putIfAbsent(module.name(), module.packageName());
 			if (first != null) {
-				return new DuplicateModuleNameViolation(module.name(), first.packageName(), module.packageName());
+				return new DuplicateModuleNameViolation(module.name(), first, module.packageName());
+			}
+		}
+		for (ExternalModuleInfo external : externalModules) {
+			String declaration = "external module " + Arrays.toString(external.packages());
+			String first = declarationByName.putIfAbsent(external.name(), declaration);
+			if (first != null) {
+				return new DuplicateModuleNameViolation(external.name(), first, declaration);
 			}
 		}
 
 		for (ModuleInfo module : modules) {
 			for (String required : module.requires()) {
-				if (!byName.containsKey(required)) {
+				if (!declarationByName.containsKey(required) && !usedJpmsModules.contains(required)
+					&& ModuleFinder.ofSystem().find(required).isEmpty()) {
 					return new UnknownRequiredModuleViolation(module.name(), module.packageName(), required);
 				}
 			}
@@ -282,7 +353,8 @@ public class ModularVerifier {
 		return new Valid();
 	}
 
-	private Result checkDependencyViolations(JavaClasses classes, List<ModuleInfo> modules) {
+	private Result checkDependencyViolations(JavaClasses classes, List<ModuleInfo> modules,
+											 List<ExternalModuleInfo> externalModules) {
 		// For each module, check its dependencies
 		for (ModuleInfo consumerModule : modules) {
 			// Get all classes in this module
@@ -295,15 +367,39 @@ public class ModularVerifier {
 					continue;
 				}
 
+				// package-info only carries the module declaration, it is not module code
+				if (clazz.getSimpleName().equals("package-info")) {
+					continue;
+				}
+
 				// Check all dependencies of this class
 				for (JavaClass dependency : clazz.getDirectDependenciesFromSelf().stream()
 						.map(dep -> dep.getTargetClass())
+						.map(JavaClass::getBaseComponentType)
 						.toList()) {
+
+					if (dependency.isPrimitive()) {
+						continue;
+					}
 
 					String depPackage = dependency.getPackageName();
 
+					// java.* is the only package that can be used without being in a module
+					if (depPackage.equals("java") || depPackage.startsWith("java.")) {
+						continue;
+					}
+
 					// Find which module this dependency belongs to
 					Optional<ModuleInfo> providerModule = findModuleForClass(depPackage, modules);
+
+					if (providerModule.isEmpty()) {
+						Result externalCheck = checkExternalDependency(
+							consumerModule, clazz, dependency, depPackage, externalModules);
+						if (externalCheck instanceof Invalid) {
+							return externalCheck;
+						}
+						continue;
+					}
 
 					if (providerModule.isPresent() && !providerModule.get().equals(consumerModule)) {
 						// Check that the consumer requires the provider module
@@ -336,6 +432,96 @@ public class ModularVerifier {
 		}
 
 		return new Valid();
+	}
+
+	private Result checkExternalDependency(ModuleInfo consumerModule, JavaClass clazz, JavaClass dependency,
+										   String depPackage, List<ExternalModuleInfo> externalModules) {
+		// The most specific virtual module covering the package, if any
+		Optional<ExternalModuleInfo> external = externalModules.stream()
+			.filter(e -> e.coverageOf(depPackage) >= 0)
+			.reduce((e1, e2) -> e1.coverageOf(depPackage) >= e2.coverageOf(depPackage) ? e1 : e2);
+
+		if (external.isEmpty()) {
+			Optional<String> jpmsModule = findJpmsModuleName(dependency);
+			if (jpmsModule.isEmpty()) {
+				return new UnmanagedDependencyViolation(
+					consumerModule.name(),
+					consumerModule.packageName(),
+					clazz.getFullName(),
+					dependency.getFullName(),
+					depPackage
+				);
+			}
+			if (!Arrays.asList(consumerModule.requires()).contains(jpmsModule.get())) {
+				return new RequiresViolation(
+					consumerModule.name(),
+					consumerModule.packageName(),
+					clazz.getFullName(),
+					jpmsModule.get(),
+					depPackage,
+					dependency.getFullName()
+				);
+			}
+			return new Valid();
+		}
+
+		// Everything in a virtual module is exported, it only has to be required
+		if (!Arrays.asList(consumerModule.requires()).contains(external.get().name())) {
+			return new RequiresViolation(
+				consumerModule.name(),
+				consumerModule.packageName(),
+				clazz.getFullName(),
+				external.get().name(),
+				String.join(", ", external.get().packages()),
+				dependency.getFullName()
+			);
+		}
+
+		return new Valid();
+	}
+
+	/**
+	 * JPMS modules of the classes outside {@code java.*} and outside the modules that the scanned classes use,
+	 * so that requiring one of them is not reported as unknown.
+	 */
+	private Set<String> collectUsedJpmsModules(JavaClasses classes, List<ModuleInfo> modules) {
+		Set<String> used = new HashSet<>();
+		for (JavaClass clazz : classes) {
+			clazz.getDirectDependenciesFromSelf().stream()
+				.map(dep -> dep.getTargetClass().getBaseComponentType())
+				.filter(dep -> !dep.isPrimitive())
+				.filter(dep -> !dep.getPackageName().equals("java") && !dep.getPackageName().startsWith("java."))
+				.filter(dep -> findModuleForClass(dep.getPackageName(), modules).isEmpty())
+				.forEach(dep -> findJpmsModuleName(dep).ifPresent(used::add));
+		}
+		return used;
+	}
+
+	/**
+	 * The JPMS module of a class, as JPMS itself would name it: its named module (JDK, module path), else the
+	 * module of the jar or directory it is loaded from (its {@code module-info}, its {@code Automatic-Module-Name},
+	 * or the name derived from the jar's file name). Empty if the class cannot be loaded or has no module name.
+	 */
+	private Optional<String> findJpmsModuleName(JavaClass javaClass) {
+		return jpmsModuleByPackage.computeIfAbsent(javaClass.getPackageName(), p -> {
+			try {
+				Class<?> loaded = Class.forName(javaClass.getName(), false, ModularVerifier.class.getClassLoader());
+				if (loaded.getModule().isNamed()) {
+					return Optional.of(loaded.getModule().getName());
+				}
+				CodeSource codeSource = loaded.getProtectionDomain().getCodeSource();
+				if (codeSource == null || codeSource.getLocation() == null) {
+					return Optional.empty();
+				}
+				Path location = Path.of(codeSource.getLocation().toURI());
+				return ModuleFinder.of(location).findAll().stream().findFirst()
+					.map(ModuleReference::descriptor)
+					.map(descriptor -> descriptor.name());
+			} catch (ClassNotFoundException | LinkageError | URISyntaxException | FindException | SecurityException
+					 | IllegalArgumentException notFound) {
+				return Optional.empty();
+			}
+		});
 	}
 
 	private Optional<ModuleInfo> findModuleForClass(String classPackage, List<ModuleInfo> modules) {
@@ -383,5 +569,27 @@ public class ModularVerifier {
 		}
 
 		return modules;
+	}
+
+	private List<ExternalModuleInfo> findAllExternalModules(JavaClasses classes) {
+		List<ExternalModuleInfo> externalModules = new ArrayList<>();
+
+		for (JavaClass javaClass : classes) {
+			if (!javaClass.getSimpleName().equals("package-info")) {
+				continue;
+			}
+			// A single @ExternalModule is stored as is, repeated ones inside their @ExternalModules container
+			javaClass.tryGetAnnotationOfType(ExternalModule.class)
+				.ifPresent(external -> externalModules.add(toExternalModuleInfo(external)));
+			javaClass.tryGetAnnotationOfType(ExternalModules.class)
+				.ifPresent(container -> Arrays.stream(container.value())
+					.forEach(external -> externalModules.add(toExternalModuleInfo(external))));
+		}
+
+		return externalModules;
+	}
+
+	private static ExternalModuleInfo toExternalModuleInfo(ExternalModule annotation) {
+		return new ExternalModuleInfo(annotation.name(), annotation.packages());
 	}
 }
