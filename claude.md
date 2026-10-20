@@ -178,7 +178,7 @@ mvn test -pl verification
 - Test modules: `org.asymetryk.modulyth.testedmodules.*`
 
 ## Development Status
-- Version: 0.1.0-SNAPSHOT (last release: 0.0.5)
+- Version: 0.1.1-SNAPSHOT (last release: 0.1.0)
 - GroupId: org.asymetrik.modular
 - Published modules: `annotations`, `processor`, `verification`, `specification` (`sample-fizzbuzz` is excluded)
 
