@@ -1,7 +1,7 @@
 # Sample: FizzBuzz
 
 A small FizzBuzz application, split into modular `@Module`s, to play with the library.
-Its only dependencies are modular's `annotations`, `processor` and `specification`.
+Its only dependencies are modular's `annotations`, `processor` and `specification`, and `report` for one test.
 
 ## Modules
 
@@ -63,6 +63,21 @@ java -cp sample-fizzbuzz/target/classes org.asymetrik.modular.sample.fizzbuzz.ap
 
 The module rules and the requirements are checked when the code compiles, by the two annotation processors
 declared in `annotationProcessorPaths` in `pom.xml`. Neither `@Module` nor `@Req` is needed at runtime.
+
+## Module report
+
+The build also writes the module report of the sample, from the test `ModuleReportTest`:
+
+```
+sample-fizzbuzz/target/modular-report/index.html
+```
+
+Open it in a browser: it shows the three modules, their sizes, a diagram of what uses what, and nothing to report.
+To see findings, make a change that the rules allow, run `mvn test -pl sample-fizzbuzz` and reload the page:
+
+- Add `"java.desktop"` to the requires of `app`: a hint says that this `requires` is not seen in use.
+- Add `"org.asymetrik.modular.sample.fizzbuzz.rules.internal"` to the exports of `rules`: a hint says that no
+  other module uses this exported package.
 
 ## Things to try
 
