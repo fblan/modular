@@ -61,7 +61,8 @@ modular/
 ├── verification/          # Verification module
 │   └── src/main/java/
 │       └── org/asymetryk/modular/verification/
-│           └── ModularVerifier.java  # ArchUnit-based verifier
+│           ├── ModuleAnalysis.java   # ArchUnit-based model: modules, dependencies, all violations
+│           └── ModularVerifier.java  # First violation of the model, and the violation types
 │
 └── sample-fizzbuzz/       # Sample FizzBuzz app to play with modular (not published)
     └── src/main/java/
@@ -135,7 +136,8 @@ Located in `verification/src/main/java/org/asymetryk/modular/verification/Modula
 - **Technology**: Uses ArchUnit's ClassFileImporter to analyze bytecode
 - **Result Types**:
   - `Valid`: Module structure is correct
-  - `Invalid`: Module structure violates constraints
+  - `Invalid`: Module structure violates constraints (the first violation of `ModuleAnalysis.violations()`);
+    every violation has `formatError()`
 
 **Usage**:
 ```java
@@ -143,6 +145,23 @@ ModularVerifier verifier = new ModularVerifier("org.example.package");
 ModularVerifier.Result result = verifier.verify();
 // Result is either Valid or Invalid (sealed interface)
 ```
+
+### ModuleAnalysis
+Located in `verification/src/main/java/org/asymetrik/modular/verification/ModuleAnalysis.java`
+
+- **Purpose**: the public model behind `ModularVerifier`, and the data of the module report (issue #32)
+- **Built by** `ModuleAnalysis.of("com.example")`, or `of(ClassScope.WITHOUT_TESTS, packages)` to leave test classes out
+- `modules()`: name, package, exports, requires and top-level types (package, exported or not, methods, class file
+  bytes; nested classes count with their top-level type, `package-info` is not a type)
+- `externalModules()`: the `@ExternalModule` declarations
+- `dependencies()`: one per (module, target), with the (consumer class, used class) pairs behind it. The target is a
+  `MODULE`, `EXTERNAL_MODULE`, `JPMS_MODULE` or `UNMANAGED` package. Forbidden uses are listed too; `java.*` and
+  uses inside a module are not
+- `violations()`: every `ModularVerifier.Invalid`, in the order nesting, names (duplicates, then unknown `requires`),
+  dependencies. `ModularVerifier.verify()` returns the first one
+- `unassignedClasses()`: scanned top-level types in no module
+- Everything is sorted (modules by name then package, classes by name), so the result is the same on every run
+- There is no rule against cycles between modules: a cycle shows in `dependencies()`, not in `violations()`
 
 ## Design Rules
 
@@ -220,7 +239,9 @@ mvn test -pl verification
 - `specification/pom.xml` - Specification module POM (`@Req` + `RequirementProcessor`, `<proc>none</proc>` for its own sources)
 - `sample-fizzbuzz/pom.xml` - Sample app POM; shows how to enable the processor via `annotationProcessorPaths` (required on JDK 23+), excluded from Maven Central publishing in the root POM
 - `sample-fizzbuzz/README.md` - How to run the sample and experiments that trigger each violation
-- `verification/src/main/java/org/asymetryk/modular/verification/ModularVerifier.java:26` - Main verification logic (currently stubbed)
+- `verification/src/main/java/org/asymetrik/modular/verification/ModuleAnalysis.java` - Main verification logic: the model and the rule checks
+- `verification/src/main/java/org/asymetrik/modular/verification/ModularVerifier.java` - `verify()` and the `Result` / violation types
+- `verification/src/test/java/org/asymetrik/modular/verification/ModuleAnalysisTest.java` - Tests of the model, on the `shop` (valid, with a cycle) and `broken` (three violations) fixtures
 - `verification/src/test/java/org/asymetryk/modular/verification/ModularVerifierTest.java` - Test cases showing intended behavior
 
 ## Architecture Principles
