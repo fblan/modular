@@ -178,7 +178,7 @@ mvn test -pl verification
 - Test modules: `org.asymetryk.modulyth.testedmodules.*`
 
 ## Development Status
-- Version: 0.1.0-SNAPSHOT (last release: 0.0.5)
+- Version: 0.1.1-SNAPSHOT (last release: 0.1.0)
 - GroupId: org.asymetrik.modular
 - Published modules: `annotations`, `processor`, `verification`, `specification` (`sample-fizzbuzz` is excluded)
 
@@ -211,6 +211,9 @@ mvn test -pl verification
   - `@TestReq` links tests to requirement ids; unknown ids are errors, untested requirements are warnings
 
 ## Key Files to Know
+- `README.md` - User documentation: setup, rules, requirements, errors and fixes. Keep it in sync with features
+- `.claude-plugin/marketplace.json` - Claude Code marketplace `asymetrik`, listing the `modular` plugin
+- `claude/plugins/modular/skills/modular/SKILL.md` - Skill teaching Claude to use modular in a user's project. Keep it in sync with features (rules, error messages, versions); bump `version` in `claude/plugins/modular/.claude-plugin/plugin.json` when it changes, and run `claude plugin validate .`
 - `pom.xml` - Parent POM defining Java 21 and modules
 - `annotations/pom.xml` - Annotations module POM (minimal, just annotation)
 - `verification/pom.xml` - Verification module POM with ArchUnit dependency
