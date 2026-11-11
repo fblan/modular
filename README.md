@@ -287,6 +287,41 @@ void modulesAreRespected() {
 `UnknownRequiredModuleViolation`, `RequiresViolation`, `ExportViolation` or `UnmanagedDependencyViolation`. Each
 violation has a `formatError()` method with a readable message.
 
+### Every violation, and the modules themselves: `ModuleAnalysis`
+
+*Not released yet: from 0.1.1.*
+
+`ModularVerifier` stops at the first violation. `ModuleAnalysis` gives all of them, and what it learned about the
+modules on the way:
+
+```java
+ModuleAnalysis analysis = ModuleAnalysis.of("com.example");
+
+analysis.violations();         // every violation: nested modules, then names, then dependencies
+analysis.modules();            // name, package, exports, requires, and the types of each module
+analysis.externalModules();    // the @ExternalModule declarations
+analysis.dependencies();       // what each module really uses, with the classes behind it
+analysis.unassignedClasses();  // scanned classes that are in no module
+```
+
+- **Types**: each top-level type has its package, whether that package is exported, its number of methods and the
+  size of its class files. Nested and anonymous classes are counted with their top-level type.
+- **Dependencies**: one per module and target. The target is a module, a virtual module, a JPMS module, or an
+  unmanaged package. A dependency is listed whether the rules allow it or not; `java.*` is left out.
+- **Test classes**: `ModuleAnalysis.of(ClassScope.WITHOUT_TESTS, List.of("com.example"))` leaves out the classes of
+  test output directories.
+
+To fail a test with every message at once:
+
+```java
+assertThat(ModuleAnalysis.of("com.example").violations())
+    .extracting(ModularVerifier.Invalid::formatError)
+    .isEmpty();
+```
+
+The analysis reads bytecode, so it cannot see what only exists in source: a constant of another module that the
+compiler inlined, or an annotation with source retention.
+
 ## Errors and how to fix them
 
 | Error | Cause | Fix |
