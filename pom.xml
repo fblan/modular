@@ -13,6 +13,7 @@
     <modules>
         <module>annotations</module>
         <module>verification</module>
+        <module>report</module>
         <module>processor</module>
         <module>specification</module>
         <module>sample-fizzbuzz</module>

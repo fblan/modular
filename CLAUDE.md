@@ -64,6 +64,19 @@ modular/
 │           ├── ModuleAnalysis.java   # ArchUnit-based model: modules, dependencies, all violations
 │           └── ModularVerifier.java  # First violation of the model, and the violation types
 │
+├── report/                # HTML module report, built on ModuleAnalysis
+│   └── src/main/
+│       ├── java/org/asymetrik/modular/report/
+│       │   ├── ModularReport.java   # Entry point: of(...), findings(), html(), writeTo(Path), main
+│       │   ├── Finding.java         # A finding: level (ERROR, WARNING, HINT), kind, title, details
+│       │   ├── ModuleGraph.java     # Dependencies between modules, and the cycles
+│       │   ├── Findings.java        # Computes the findings
+│       │   ├── DiagramLayout.java   # Positions of the diagram's boxes and arrows (layers)
+│       │   ├── DiagramSvg.java      # The inline SVG of the diagram
+│       │   ├── ReportPage.java      # The HTML page
+│       │   └── Text.java            # Escaping, plurals, numbers, sizes
+│       └── resources/org/asymetrik/modular/report/   # report.css and report.js, put inline in the page
+│
 └── sample-fizzbuzz/       # Sample FizzBuzz app to play with modular (not published)
     └── src/main/java/
         └── org/asymetrik/modular/sample/fizzbuzz/
@@ -149,7 +162,7 @@ ModularVerifier.Result result = verifier.verify();
 ### ModuleAnalysis
 Located in `verification/src/main/java/org/asymetrik/modular/verification/ModuleAnalysis.java`
 
-- **Purpose**: the public model behind `ModularVerifier`, and the data of the module report (issue #32)
+- **Purpose**: the public model behind `ModularVerifier`, and the data of the module report (`report` module)
 - **Built by** `ModuleAnalysis.of("com.example")`, or `of(ClassScope.WITHOUT_TESTS, packages)` to leave test classes out
 - `modules()`: name, package, exports, requires and top-level types (package, exported or not, methods, class file
   bytes; nested classes count with their top-level type, `package-info` is not a type)
@@ -162,6 +175,23 @@ Located in `verification/src/main/java/org/asymetrik/modular/verification/Module
 - `unassignedClasses()`: scanned top-level types in no module
 - Everything is sorted (modules by name then package, classes by name), so the result is the same on every run
 - There is no rule against cycles between modules: a cycle shows in `dependencies()`, not in `violations()`
+
+### ModularReport (report module)
+Located in `report/src/main/java/org/asymetrik/modular/report/ModularReport.java`
+
+- **Purpose**: one self-contained `index.html` to check that the modules are sound: sizes, dependencies, diagram,
+  findings. `ModularReport.of("com.example").writeTo(Path.of("target/modular-report"))`, from a test or with `main`
+  (`<output directory> <package>...`), since it needs the class path of the application
+- `of(String...)` / `of(List)` leave test classes out; `of(ModuleAnalysis)` reports on any analysis
+- `findings()`: violations (`ERROR`), cycles and classes in no module (`WARNING`), `requires` not seen in use and
+  exported packages not used (`HINT`, can be false alarms as only bytecode is read)
+- **Page rules**: no network reference, no JavaScript library, complete without JavaScript (the script only
+  highlights a module's arrows), light and dark themes from CSS tokens in `report.css`, every name escaped with
+  `Text.escape`, and the same page for the same classes apart from the generation time
+- **Diagram**: inline SVG laid out by `DiagramLayout` in Java. A module is below the modules that use it; an arrow
+  outside a cycle always points down; cycle arrows are red. Virtual and JPMS modules are not drawn
+- The report never fails a build, and has no section on requirements yet (see the spec's out of scope)
+- To look at a report while working on it: `sample-fizzbuzz/target/modular-report/index.html` after a build
 
 ## Design Rules
 
@@ -183,6 +213,7 @@ mvn clean install
 # Build specific module
 mvn clean install -pl annotations
 mvn clean install -pl verification
+mvn clean install -pl report
 mvn clean install -pl specification
 
 # Run tests
@@ -199,7 +230,9 @@ mvn test -pl verification
 ## Development Status
 - Version: 0.1.1-SNAPSHOT (last release: 0.1.0)
 - GroupId: org.asymetrik.modular
-- Published modules: `annotations`, `processor`, `verification`, `specification` (`sample-fizzbuzz` is excluded)
+- Published modules: `annotations`, `processor`, `verification`, `report`, `specification` (`sample-fizzbuzz` is excluded)
+- Not released yet (from 0.1.1): `ModuleAnalysis` and the `report` module. The skill (`SKILL.md`) describes the
+  released version, so it does not mention them yet: add them to it when 0.1.1 is released
 
 ## Specifications
 - **Module Annotation Feature**: `src/main/doc/SPEC_20260108_0001_module_annotation.md`
@@ -229,6 +262,9 @@ mvn test -pl verification
 - **Requirement Tests**: `src/main/doc/SPEC_20261019_0005_test_requirements.md`
   - `@TestReq` links tests to requirement ids; unknown ids are errors, untested requirements are warnings
 
+- **Module Report**: `src/main/doc/SPEC_20261111_0001_module_report.md`
+  - New `report` module: `ModularReport` writes an HTML page with sizes, dependencies, a diagram and findings
+
 ## Key Files to Know
 - `README.md` - User documentation: setup, rules, requirements, errors and fixes. Keep it in sync with features
 - `.claude-plugin/marketplace.json` - Claude Code marketplace `asymetrik`, listing the `modular` plugin
@@ -243,6 +279,10 @@ mvn test -pl verification
 - `verification/src/main/java/org/asymetrik/modular/verification/ModularVerifier.java` - `verify()` and the `Result` / violation types
 - `verification/src/test/java/org/asymetrik/modular/verification/ModuleAnalysisTest.java` - Tests of the model, on the `shop` (valid, with a cycle) and `broken` (three violations) fixtures
 - `verification/src/test/java/org/asymetryk/modular/verification/ModularVerifierTest.java` - Test cases showing intended behavior
+- `report/pom.xml` - Report module POM (depends on `verification` only)
+- `report/src/test/java/org/asymetrik/modular/report/` - Tests of the report, on the `testapp` (one of each finding, a module name to escape), `cleanapp` (no finding) and `brokenapp` (unknown `requires`) fixtures
+- `sample-fizzbuzz/src/test/java/org/asymetrik/modular/sample/fizzbuzz/ModuleReportTest.java` - Writes the sample's report to `target/modular-report/index.html`
+- `src/main/doc/images/module-report.png` - Screenshot of the sample's report shown in `README.md`; take it again when the page changes
 
 ## Architecture Principles
 This project enforces modular architecture by:

@@ -40,6 +40,7 @@ void saysTheNumberWhenNoRuleMatches() { ... }
 - [Declaring modules](#declaring-modules)
 - [Requirements](#requirements)
 - [Checking in tests with ModularVerifier](#checking-in-tests-with-modularverifier)
+- [Module report](#module-report)
 - [Errors and how to fix them](#errors-and-how-to-fix-them)
 - [IDE support](#ide-support)
 - [Claude Code skill](#claude-code-skill)
@@ -55,6 +56,7 @@ Requires Java 21 or later. Artifacts are on Maven Central, under the group `org.
 | `processor`     | `ModuleAnnotationProcessor`: checks the module rules                           | compile time    |
 | `specification` | `@Req`, `@TestReq`, and `RequirementProcessor`: checks the requirements         | compile time    |
 | `verification`  | `ModularVerifier`: the same module rules, checked from a test with ArchUnit    | tests (optional) |
+| `report`        | `ModularReport`: an HTML report on the modules (not released yet: from 0.1.1)  | tests (optional) |
 
 ### Maven
 
@@ -322,6 +324,77 @@ assertThat(ModuleAnalysis.of("com.example").violations())
 The analysis reads bytecode, so it cannot see what only exists in source: a constant of another module that the
 compiler inlined, or an annotation with source retention.
 
+## Module report
+
+*Not released yet: from 0.1.1.*
+
+The rules tell you when a boundary is crossed. The report shows you the modules themselves, to check that they
+are the ones you intended: one HTML page with the size of each module, the dependencies between them, a diagram,
+and a list of findings.
+
+![The module report of the FizzBuzz sample: summary, findings and diagram](src/main/doc/images/module-report.png)
+
+```xml
+<dependency>
+    <groupId>org.asymetrik.modular</groupId>
+    <artifactId>report</artifactId>
+    <version>${modular.version}</version>
+    <scope>test</scope>
+</dependency>
+```
+
+Write it from a test, which has the class path of your application:
+
+```java
+@Test
+void writesTheModuleReport() {
+    ModularReport.of("com.example").writeTo(Path.of("target/modular-report"));
+}
+```
+
+Then open `target/modular-report/index.html` in a browser. It is a single file that needs no network access, so it
+can be kept as a build artifact or sent as is. Test classes are left out; to choose the classes yourself, pass a
+`ModuleAnalysis` to `ModularReport.of`.
+
+Without a test, run it with the classes of your application on the class path:
+
+```bash
+java -cp <class path> org.asymetrik.modular.report.ModularReport target/modular-report com.example
+```
+
+### What the report shows
+
+- **Summary**: whether the module rules hold, and the number of modules, types, dependencies and findings.
+- **Findings**: what to look at, most serious first (see below).
+- **Diagram**: a box per module, an arrow from a module to each module it uses. A module sits below the modules
+  that use it, so arrows point down; the arrows of a cycle are red. A box is taller when the module has more types,
+  an arrow is wider when there are more uses. Select a module to highlight its arrows.
+- **Dependency matrix**: the number of uses of each module by each other module.
+- **Modules**: for each module, its exports and requires, its size (types, methods, class file bytes), what it
+  uses and who uses it, with the classes behind each dependency, and its types.
+- **Outside the modules**: the virtual modules, JPMS modules and unmanaged packages that the modules use.
+
+| Finding | Level | Meaning |
+|---------|-------|---------|
+| Violation | error | A module rule is broken: the same violations as `ModuleAnalysis.violations()`. |
+| Cycle | warning | Modules that use each other, directly or not. No rule forbids it, so only the report shows it. |
+| Classes in no module | warning | Scanned classes that are in no `@Module` and in no `@ExternalModule`. |
+| `requires` not seen in use | hint | A name in `requires` that the module's classes do not use. |
+| Exported package not used | hint | A package in `exports` that no other module uses. |
+
+A hint can be a false alarm. The report reads bytecode: it does not see a constant that the compiler inlined or an
+annotation with source retention, and an exported package can be an entry point, or be used by reflection.
+
+The findings are also available in Java, for example to keep a code base free of cycles:
+
+```java
+assertThat(ModularReport.of("com.example").findings())
+    .filteredOn(finding -> finding.kind() == Finding.Kind.CYCLE)
+    .isEmpty();
+```
+
+The report itself never fails a build.
+
 ## Errors and how to fix them
 
 | Error | Cause | Fix |
@@ -377,7 +450,8 @@ mvn clean install
 |-------------------|-------------|
 | `annotations`     | `@Module`, `@ExternalModule` |
 | `processor`       | Annotation processor for the module rules |
-| `verification`    | `ModularVerifier`, ArchUnit-based |
+| `verification`    | `ModularVerifier` and `ModuleAnalysis`, ArchUnit-based |
+| `report`          | `ModularReport`: the HTML module report |
 | `specification`   | `@Req`, `@TestReq` and their annotation processor |
 | `sample-fizzbuzz` | Sample application (not published) |
 

@@ -29,6 +29,13 @@
             <version>${project.version}</version>
             <scope>provided</scope>
         </dependency>
+        <!-- Only for the test that writes the module report to target/modular-report. -->
+        <dependency>
+            <groupId>org.asymetrik.modular</groupId>
+            <artifactId>report</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
