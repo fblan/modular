@@ -4,7 +4,7 @@
 This project provides a simple, annotation-based approach to modularize Java applications. It uses package-level annotations and ArchUnit-based verification to enforce modular boundaries and prevent unwanted dependencies between modules.
 
 ---
-**Note for Claude Code**: As this project evolves, you should proactively analyze changes to the codebase and propose updates to this claude.md file. This includes:
+**Note for Claude Code**: As this project evolves, you should proactively analyze changes to the codebase and propose updates to this CLAUDE.md file. This includes:
 - New features, classes, or modules added
 - Changes to the API or verification logic
 - New architectural rules or constraints

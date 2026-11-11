@@ -206,4 +206,4 @@ All 16 tests in the class pass (7 pre-existing + 9 above, with 2 of the original
 - [x] Wildcard cross-check + `Trees.printMessage` anchored diagnostic
 - [x] Guard nested-class re-descent
 - [x] 9 unit tests covering all use cases above
-- [ ] Update `claude.md` with the new detection capability (processor module isn't yet documented there at all — worth a follow-up pass covering the whole `processor` module, not just this feature)
+- [ ] Update `CLAUDE.md` with the new detection capability (processor module isn't yet documented there at all — worth a follow-up pass covering the whole `processor` module, not just this feature)
