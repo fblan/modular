@@ -185,6 +185,9 @@ figcaption { font-size: 13.5px; color: var(--muted); max-width: 76ch; }
 .diagram .node rect { fill: var(--surface); stroke: var(--edge); stroke-width: 1.25; }
 .diagram .node .name { font: 600 13px var(--mono); fill: var(--fg); }
 .diagram .node .size { font: 11px var(--sans); fill: var(--muted); }
+.diagram .node.error rect { stroke: var(--danger); stroke-width: 2.5; fill: var(--danger-soft); }
+.diagram .node.warning rect { stroke: var(--warning); stroke-width: 2.5; fill: var(--warning-soft); }
+.diagram .node.hint rect { stroke: var(--hint); stroke-width: 2; fill: var(--hint-soft); }
 .diagram .edge path { fill: none; stroke: var(--edge); }
 .diagram .edge polygon { fill: var(--edge); }
 .diagram .edge.cycle path { stroke: var(--danger); }
@@ -206,8 +209,10 @@ tbody th { font-weight: 500; }
 .wide td, .wide tbody th { overflow-wrap: anywhere; }
 .overview { width: 100%; min-width: 620px; background: var(--surface); border: 1px solid var(--line); }
 .overview tbody th { font-family: var(--mono); font-size: 13px; }
-.bar { display: block; height: 8px; min-width: 72px; margin-top: 7px; background: var(--sunken); border-radius: 2px; }
-.bar span { display: block; height: 100%; background: var(--accent); border-radius: 2px; }
+.overview tr.error > th { box-shadow: inset 4px 0 var(--danger); }
+.overview tr.warning > th { box-shadow: inset 4px 0 var(--warning); }
+.overview tr.hint > th { box-shadow: inset 4px 0 var(--hint); }
+.overview .flag { margin-left: 4px; font-family: var(--sans); }
 
 .matrix { background: var(--surface); border: 1px solid var(--line); }
 .matrix th, .matrix td { border: 1px solid var(--line); padding: 5px 8px; }
@@ -230,6 +235,9 @@ tbody th { font-weight: 500; }
 	gap: 14px;
 	min-width: 0;
 }
+.module.error { border-left: 4px solid var(--danger); }
+.module.warning { border-left: 4px solid var(--warning); }
+.module.hint { border-left: 4px solid var(--hint); }
 .module > header { display: flex; flex-direction: column; gap: 2px; }
 .module > header code { color: var(--muted); font-size: 13px; }
 .facts { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 6px 14px; }
@@ -251,6 +259,9 @@ tbody th { font-weight: 500; }
 	white-space: nowrap;
 }
 .flag.error { background: var(--danger-soft); color: var(--danger); }
+.flag.warning { background: var(--warning-soft); color: var(--warning); }
+.about .flag { min-width: 5.2em; text-align: center; }
+.about a { overflow-wrap: anywhere; }
 .types > summary { font-size: 13px; font-weight: 600; color: var(--muted); }
 .types table { margin-top: 6px; }
 

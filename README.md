@@ -56,13 +56,13 @@ Requires Java 21 or later. Artifacts are on Maven Central, under the group `org.
 | `processor`     | `ModuleAnnotationProcessor`: checks the module rules                           | compile time    |
 | `specification` | `@Req`, `@TestReq`, and `RequirementProcessor`: checks the requirements         | compile time    |
 | `verification`  | `ModularVerifier`: the same module rules, checked from a test with ArchUnit    | tests (optional) |
-| `report`        | `ModularReport`: an HTML report on the modules (not released yet: from 0.1.1)  | tests (optional) |
+| `report`        | `ModularReport`: an HTML report on the modules                                 | tests (optional) |
 
 ### Maven
 
 ```xml
 <properties>
-    <modular.version>0.1.0</modular.version>
+    <modular.version>0.1.1</modular.version>
 </properties>
 
 <dependencies>
@@ -113,14 +113,14 @@ The annotations are only read at compile time, so `provided` keeps them out of y
 
 ```kotlin
 dependencies {
-    compileOnly("org.asymetrik.modular:annotations:0.1.0")
-    annotationProcessor("org.asymetrik.modular:processor:0.1.0")
+    compileOnly("org.asymetrik.modular:annotations:0.1.1")
+    annotationProcessor("org.asymetrik.modular:processor:0.1.1")
 
     // Optional: requirements
-    compileOnly("org.asymetrik.modular:specification:0.1.0")
-    testCompileOnly("org.asymetrik.modular:specification:0.1.0")
-    annotationProcessor("org.asymetrik.modular:specification:0.1.0")
-    testAnnotationProcessor("org.asymetrik.modular:specification:0.1.0")
+    compileOnly("org.asymetrik.modular:specification:0.1.1")
+    testCompileOnly("org.asymetrik.modular:specification:0.1.1")
+    annotationProcessor("org.asymetrik.modular:specification:0.1.1")
+    testAnnotationProcessor("org.asymetrik.modular:specification:0.1.1")
 }
 ```
 
@@ -291,8 +291,6 @@ violation has a `formatError()` method with a readable message.
 
 ### Every violation, and the modules themselves: `ModuleAnalysis`
 
-*Not released yet: from 0.1.1.*
-
 `ModularVerifier` stops at the first violation. `ModuleAnalysis` gives all of them, and what it learned about the
 modules on the way:
 
@@ -309,9 +307,25 @@ analysis.unassignedClasses();  // scanned classes that are in no module
 - **Types**: each top-level type has its package, whether that package is exported, its number of methods and the
   size of its class files. Nested and anonymous classes are counted with their top-level type.
 - **Dependencies**: one per module and target. The target is a module, a virtual module, a JPMS module, or an
-  unmanaged package. A dependency is listed whether the rules allow it or not; `java.*` is left out.
+  unmanaged package. A dependency is listed whether the rules allow it or not. Uses of `java.base` are left out;
+  from 0.1.2, a use of another JDK module, such as `java.net.http`, is a dependency on that JPMS module. It breaks
+  no rule: `java.*` can be used without `requires`.
 - **Test classes**: `ModuleAnalysis.of(ClassScope.WITHOUT_TESTS, List.of("com.example"))` leaves out the classes of
   test output directories.
+
+- **Generated code** (from 0.1.2): a framework that generates classes in your packages, or weaves code into your
+  classes, makes them use modules that no `requires` lists. The processor reads sources, so it never sees that
+  code; the analysis reads bytecode, so it does. Leave it out with `Exclusions`:
+
+  ```java
+  ModuleAnalysis.of(ClassScope.WITHOUT_TESTS, List.of("com.example"),
+      new Exclusions(List.of("**$$*", "**RepositoryImpl"), List.of("io.example.framework.Link")));
+  ```
+
+  The first list names classes to leave out entirely: they are not measured, not analysed, and not "in no module"
+  (a nested class goes with its top-level class). The second names used classes to ignore: a use of one of them is
+  no dependency and no violation. In a pattern, `*` matches any characters except `.`, `**` any characters, and
+  the rest is literal; it matches the fully qualified name, nested classes written with `$`.
 
 To fail a test with every message at once:
 
@@ -325,8 +339,6 @@ The analysis reads bytecode, so it cannot see what only exists in source: a cons
 compiler inlined, or an annotation with source retention.
 
 ## Module report
-
-*Not released yet: from 0.1.1.*
 
 The rules tell you when a boundary is crossed. The report shows you the modules themselves, to check that they
 are the ones you intended: one HTML page with the size of each module, the dependencies between them, a diagram,
@@ -362,16 +374,26 @@ Without a test, run it with the classes of your application on the class path:
 java -cp <class path> org.asymetrik.modular.report.ModularReport target/modular-report com.example
 ```
 
+From 0.1.2, the command line takes the exclusions of the analysis (see "Generated code" above), each option
+repeated as needed. The page then says what was left out, under the scanned packages.
+
+```bash
+java -cp <class path> org.asymetrik.modular.report.ModularReport \
+    '--exclude-class=**$$*' '--exclude-use=io.example.framework.Link' target/modular-report com.example
+```
+
 ### What the report shows
 
 - **Summary**: whether the module rules hold, and the number of modules, types, dependencies and findings.
 - **Findings**: what to look at, most serious first (see below).
 - **Diagram**: a box per module, an arrow from a module to each module it uses. A module sits below the modules
   that use it, so arrows point down; the arrows of a cycle are red. A box is taller when the module has more types,
-  an arrow is wider when there are more uses. Select a module to highlight its arrows.
+  an arrow is wider when there are more uses. Select a module to highlight its arrows. From 0.1.2, a module with
+  findings takes the color of the most serious one: red for an error, amber for a warning, blue for a hint.
 - **Dependency matrix**: the number of uses of each module by each other module.
 - **Modules**: for each module, its exports and requires, its size (types, methods, class file bytes), what it
-  uses and who uses it, with the classes behind each dependency, and its types.
+  uses and who uses it, with the classes behind each dependency, and its types. From 0.1.2, a module with findings
+  is marked in the table, with their number, and its section lists them, linked to the Findings section.
 - **Outside the modules**: the virtual modules, JPMS modules and unmanaged packages that the modules use.
 
 | Finding | Level | Meaning |
@@ -379,11 +401,17 @@ java -cp <class path> org.asymetrik.modular.report.ModularReport target/modular-
 | Violation | error | A module rule is broken: the same violations as `ModuleAnalysis.violations()`. |
 | Cycle | warning | Modules that use each other, directly or not. No rule forbids it, so only the report shows it. |
 | Classes in no module | warning | Scanned classes that are in no `@Module` and in no `@ExternalModule`. |
+| Large module (from 0.1.2) | warning | A module with at least 20 types whose class files are more than 3 times the median module's (given at least 3 modules): it probably holds several parts of the domain. |
 | `requires` not seen in use | hint | A name in `requires` that the module's classes do not use. |
 | Exported package not used | hint | A package in `exports` that no other module uses. |
+| Large type (from 0.1.2) | hint | A type with more than 35 methods, SonarQube's default limit: it probably does several jobs. |
+| Leaky API (from 0.1.2) | hint | A module uses exported types of another module that use a third one, and doesn't require that third one: it can't use what it receives without a new `requires`. |
+| Borrowed exception (from 0.1.2) | hint | A module creates exceptions of another module, so its errors depend on how that module handles them. Catching them is fine. |
+| Exported helper (from 0.1.2) | hint | An exported class of static helpers (static members only, and no method returning a type of its own module, which would make it a factory) that another module uses: shared code that belongs to neither. |
 
 A hint can be a false alarm. The report reads bytecode: it does not see a constant that the compiler inlined or an
-annotation with source retention, and an exported package can be an entry point, or be used by reflection.
+annotation with source retention, and an exported package can be an entry point, or be used by reflection. A large
+type, an exported helper or a shared exception can also be a choice.
 
 The findings are also available in Java, for example to keep a code base free of cycles:
 

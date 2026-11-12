@@ -25,6 +25,7 @@ import java.lang.module.ModuleFinder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -38,6 +39,7 @@ import org.asymetrik.modular.report.ModuleGraph.Edge;
 import org.asymetrik.modular.verification.ModuleAnalysis;
 import org.asymetrik.modular.verification.ModuleAnalysis.ClassUse;
 import org.asymetrik.modular.verification.ModuleAnalysis.Dependency;
+import org.asymetrik.modular.verification.ModuleAnalysis.Exclusions;
 import org.asymetrik.modular.verification.ModuleAnalysis.ExternalModuleDescription;
 import org.asymetrik.modular.verification.ModuleAnalysis.ModuleDescription;
 import org.asymetrik.modular.verification.ModuleAnalysis.TargetKind;
@@ -63,6 +65,10 @@ final class ReportPage {
 	private final Map<List<String>, Edge> edgeOf = new HashMap<>();
 	private final Set<String> virtualModules = new TreeSet<>();
 	private final Set<String> jpmsModules = new TreeSet<>();
+	/** For a finding, the id of its item in the Findings section. */
+	private final Map<Finding, String> idOfFinding = new IdentityHashMap<>();
+	/** For the name of a module with findings, the most serious of their levels. */
+	private final Map<String, Level> levelOf;
 	private final StringBuilder out = new StringBuilder();
 
 	ReportPage(ModuleAnalysis analysis, ModuleGraph graph, Findings findings, DiagramLayout layout,
@@ -92,6 +98,11 @@ final class ReportPage {
 		for (Edge edge : graph.edges()) {
 			edgeOf.put(List.of(edge.from(), edge.to()), edge);
 		}
+		List<Finding> all = findings.all();
+		for (int i = 0; i < all.size(); i++) {
+			idOfFinding.put(all.get(i), "finding-" + (i + 1));
+		}
+		this.levelOf = findings.levelOfModules();
 	}
 
 	String render() {
@@ -124,7 +135,20 @@ final class ReportPage {
 		for (int i = 0; i < analysis.packages().size(); i++) {
 			out.append(i > 0 ? ", " : "").append(code(analysis.packages().get(i)));
 		}
-		out.append("</p>\n<nav aria-label=\"Sections\"><a href=\"#summary\">Summary</a>")
+		out.append("</p>\n");
+		Exclusions exclusions = analysis.exclusions();
+		if (!exclusions.isEmpty()) {
+			out.append("<p class=\"scanned\">Left out:");
+			if (!exclusions.classes().isEmpty()) {
+				out.append(" classes matching ").append(codes(exclusions.classes()))
+					.append(exclusions.uses().isEmpty() ? "." : ";");
+			}
+			if (!exclusions.uses().isEmpty()) {
+				out.append(" uses of ").append(codes(exclusions.uses())).append(".");
+			}
+			out.append("</p>\n");
+		}
+		out.append("<nav aria-label=\"Sections\"><a href=\"#summary\">Summary</a>")
 			.append("<a href=\"#findings\">Findings</a>");
 		if (!modules.isEmpty()) {
 			out.append("<a href=\"#diagram\">Diagram</a>");
@@ -137,6 +161,14 @@ final class ReportPage {
 			out.append("<a href=\"#outside\">Outside the modules</a>");
 		}
 		out.append("</nav>\n</header>\n");
+	}
+
+	private static String codes(List<String> patterns) {
+		StringBuilder joined = new StringBuilder();
+		for (int i = 0; i < patterns.size(); i++) {
+			joined.append(i > 0 ? ", " : "").append(code(patterns.get(i)));
+		}
+		return joined.toString();
 	}
 
 	private void summary() {
@@ -198,8 +230,9 @@ final class ReportPage {
 		}
 		out.append("<ul class=\"findings\">\n");
 		for (Finding finding : all) {
-			String level = finding.level().name().toLowerCase(java.util.Locale.ROOT);
-			out.append("<li class=\"finding ").append(level).append("\"><span class=\"level\">").append(level)
+			String level = levelName(finding.level());
+			out.append("<li class=\"finding ").append(level).append("\" id=\"").append(idOfFinding.get(finding))
+				.append("\"><span class=\"level\">").append(level)
 				.append("</span><div><p class=\"what\">").append(escape(finding.title())).append("</p>");
 			if (!finding.details().isEmpty()) {
 				boolean folded = finding.details().size() > LINES_SHOWN;
@@ -222,7 +255,8 @@ final class ReportPage {
 		if (findings.count(Level.HINT) > 0) {
 			out.append("<p class=\"note\">A hint can be a false alarm. The report reads bytecode: a use that only ")
 				.append("exists in source, such as an inlined constant or a source-retention annotation, is not ")
-				.append("seen, and an exported package can be an entry point or be used by reflection.</p>\n");
+				.append("seen, and an exported package can be an entry point or be used by reflection. A large type, ")
+				.append("an exported helper or a shared exception can also be a choice.</p>\n");
 		}
 		out.append("</section>\n");
 	}
@@ -233,11 +267,16 @@ final class ReportPage {
 			+ (graph.cycles().isEmpty() ? "" : ", with " + count(graph.cycles().size(), "cycle"))
 			+ ". The dependency matrix and the module sections below give the same information as text.";
 		out.append("<section id=\"diagram\">\n<h2>Diagram</h2>\n<figure>\n<div class=\"scroll\">\n")
-			.append(DiagramSvg.render(layout, label, sectionOf)).append("</div>\n<figcaption>")
+			.append(DiagramSvg.render(layout, label, sectionOf, levelOf, this::findingsOf))
+			.append("</div>\n<figcaption>")
 			.append("An arrow goes from a module to a module it uses, and is wider when there are more uses. ")
 			.append("A module sits below the modules that use it. ");
 		if (!graph.cycles().isEmpty()) {
 			out.append("The arrows in red are part of a cycle: they cannot all point down. ");
+		}
+		if (!levelOf.isEmpty()) {
+			out.append("A box with findings takes the color of the most serious one: red for an error, amber for a ")
+				.append("warning, blue for a hint. ");
 		}
 		out.append("The height of a box follows its number of types.")
 			.append("<span class=\"js-only\" hidden> Select a module to highlight its arrows.</span>")
@@ -281,22 +320,22 @@ final class ReportPage {
 	}
 
 	private void modules() {
-		int mostTypes = 1;
-		for (ModuleDescription module : modules) {
-			mostTypes = Math.max(mostTypes, module.types().size());
-		}
 		out.append("<section id=\"modules\">\n<h2>Modules</h2>\n<div class=\"scroll\">\n<table class=\"overview\">\n")
 			.append("<thead><tr><th scope=\"col\">Module</th><th scope=\"col\" class=\"num\">Types</th>")
-			.append("<th scope=\"col\"></th><th scope=\"col\" class=\"num\">Exported types</th>")
+			.append("<th scope=\"col\" class=\"num\">Exported</th>")
 			.append("<th scope=\"col\" class=\"num\">Methods</th><th scope=\"col\" class=\"num\">Class files</th>")
 			.append("<th scope=\"col\" class=\"num\">Uses</th><th scope=\"col\" class=\"num\">Used by</th>")
 			.append("</tr></thead>\n<tbody>\n");
 		for (ModuleDescription module : modules) {
-			int types = module.types().size();
-			out.append("<tr><th scope=\"row\">").append(moduleLink(module.name())).append("</th><td class=\"num\">")
-				.append(types).append("</td><td><span class=\"bar\"><span style=\"width:")
-				.append(Text.number(100.0 * types / mostTypes)).append("%\"></span></span></td><td class=\"num\">")
-				.append(exportedTypes(module)).append(" of ").append(types).append("</td><td class=\"num\">")
+			out.append("<tr").append(levelClass(module.name(), " class=\"", "\"")).append("><th scope=\"row\">")
+				.append(moduleLink(module.name()));
+			if (levelOf.containsKey(module.name())) {
+				out.append(" <span class=\"flag ").append(levelName(levelOf.get(module.name()))).append("\">")
+					.append(escape(findingsOf(module.name()))).append("</span>");
+			}
+			out.append("</th><td class=\"num\">")
+				.append(module.types().size()).append("</td><td class=\"num\">").append(exportedTypes(module))
+				.append("</td><td class=\"num\">")
 				.append(methods(module)).append("</td><td class=\"num\">").append(Text.bytes(bytes(module)))
 				.append("</td><td class=\"num\">").append(dependenciesOf.getOrDefault(module.name(), List.of()).size())
 				.append("</td><td class=\"num\">").append(usersOf.getOrDefault(module.name(), List.of()).size())
@@ -313,9 +352,22 @@ final class ReportPage {
 		ModuleDescription module = modules.get(index);
 		List<Dependency> dependencies = dependenciesOf.getOrDefault(module.name(), List.of());
 		List<Dependency> users = usersOf.getOrDefault(module.name(), List.of());
-		out.append("<article class=\"module\" id=\"module-").append(index + 1).append("\">\n<header><h3>")
-			.append(escape(module.name())).append("</h3>").append(code(module.packageName()))
-			.append("</header>\n<dl class=\"facts\">\n");
+		out.append("<article class=\"module").append(levelClass(module.name(), " ", "")).append("\" id=\"module-")
+			.append(index + 1).append("\">\n<header><h3>").append(escape(module.name())).append("</h3>")
+			.append(code(module.packageName())).append("</header>\n<dl class=\"facts\">\n");
+
+		// Two modules with the same name share their findings
+		List<Finding> about = findings.about(module.name());
+		if (!about.isEmpty()) {
+			out.append("<dt>Findings</dt><dd><ul class=\"about\">");
+			for (Finding finding : about) {
+				String level = levelName(finding.level());
+				out.append("<li><span class=\"flag ").append(level).append("\">").append(level)
+					.append("</span> <a href=\"#").append(idOfFinding.get(finding)).append("\">")
+					.append(escape(finding.title())).append("</a></li>");
+			}
+			out.append("</ul></dd>\n");
+		}
 
 		out.append("<dt>Exports</dt><dd>");
 		if (module.exports().isEmpty()) {
@@ -425,6 +477,29 @@ final class ReportPage {
 				.append("</li>");
 		}
 		out.append("</ul></details>");
+	}
+
+	/** "1 warning, 2 hints": the findings about a module, by level, or an empty text when it has none. */
+	private String findingsOf(String moduleName) {
+		List<Finding> about = findings.about(moduleName);
+		List<String> parts = new ArrayList<>();
+		for (Level level : Level.values()) {
+			long number = about.stream().filter(finding -> finding.level() == level).count();
+			if (number > 0) {
+				parts.add(count(number, levelName(level)));
+			}
+		}
+		return String.join(", ", parts);
+	}
+
+	/** The level of a module's findings as a class, between a prefix and a suffix, or nothing when it has none. */
+	private String levelClass(String moduleName, String prefix, String suffix) {
+		Level level = levelOf.get(moduleName);
+		return level == null ? "" : prefix + levelName(level) + suffix;
+	}
+
+	private static String levelName(Level level) {
+		return level.name().toLowerCase(java.util.Locale.ROOT);
 	}
 
 	private boolean hasOutside() {

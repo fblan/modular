@@ -21,11 +21,14 @@ import static org.asymetrik.modular.report.Text.number;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.function.Function;
 
 import org.asymetrik.modular.report.DiagramLayout.Arrow;
 import org.asymetrik.modular.report.DiagramLayout.Box;
 import org.asymetrik.modular.report.DiagramLayout.Point;
+import org.asymetrik.modular.report.Finding.Level;
 
 /** Draws the diagram of the modules as an SVG element. The colours come from the page's style sheet. */
 final class DiagramSvg {
@@ -37,8 +40,11 @@ final class DiagramSvg {
 	 * @param layout where everything goes
 	 * @param label what the diagram shows, for a reader who cannot see it
 	 * @param sectionOf for a module name, the id of its section in the page
+	 * @param levelOf for the name of a module with findings, the most serious of their levels
+	 * @param findingsOf for a module name, its findings in a few words, such as "1 warning, 2 hints"
 	 */
-	static String render(DiagramLayout layout, String label, Map<String, String> sectionOf) {
+	static String render(DiagramLayout layout, String label, Map<String, String> sectionOf,
+			Map<String, Level> levelOf, Function<String, String> findingsOf) {
 		Map<String, Integer> idOf = new HashMap<>();
 		for (Box box : layout.boxes()) {
 			idOf.put(box.name(), idOf.size() + 1);
@@ -80,9 +86,13 @@ final class DiagramSvg {
 			double middle = box.x() + box.width() / 2;
 			double baseline = box.y() + box.height() / 2;
 			String size = Text.count(box.types(), "type");
-			svg.append("<g class=\"node\" data-module=\"").append(idOf.get(box.name())).append("\" data-name=\"")
+			Level level = levelOf.get(box.name());
+			String description = box.name() + ", " + size + (level == null ? "" : ", " + findingsOf.apply(box.name()));
+			svg.append("<g class=\"node").append(level == null ? "" : " " + level.name().toLowerCase(Locale.ROOT))
+				.append("\" data-module=\"").append(idOf.get(box.name())).append("\" data-name=\"")
 				.append(escape(box.name())).append("\" data-section=\"#").append(sectionOf.get(box.name()))
-				.append("\" aria-label=\"").append(escape(box.name() + ", " + size)).append("\">");
+				.append("\" aria-label=\"").append(escape(description)).append("\"><title>").append(escape(description))
+				.append("</title>");
 			svg.append("<rect x=\"").append(number(box.x())).append("\" y=\"").append(number(box.y()))
 				.append("\" width=\"").append(number(box.width())).append("\" height=\"")
 				.append(number(box.height())).append("\" rx=\"5\"/>");

@@ -42,14 +42,14 @@ class ModularReportTest {
 			.contains("<dt>Types</dt><dd class=\"value\">7</dd>")
 			.contains("<dt>Dependencies</dt><dd class=\"value\">6</dd><dd class=\"sub\">between modules, and 2 on what "
 				+ "is outside</dd>")
-			.contains("<dt>Findings</dt><dd class=\"value\">6</dd><dd class=\"sub\">1 error, 2 warnings, 3 hints</dd>")
+			.contains("<dt>Findings</dt><dd class=\"value\">9</dd><dd class=\"sub\">1 error, 2 warnings, 6 hints</dd>")
 			.contains("<p class=\"verdict error\">1 violation of the module rules.");
 	}
 
 	@Test
 	void every_module_has_its_section() {
 		assertThat(html)
-			.contains("<article class=\"module\" id=\"module-1\">\n<header><h3>billing</h3><code>" + TESTAPP
+			.contains("<article class=\"module warning\" id=\"module-1\">\n<header><h3>billing</h3><code>" + TESTAPP
 				+ ".billing</code>")
 			.contains("id=\"module-2\">\n<header><h3>catalog</h3>")
 			.contains("id=\"module-3\">\n<header><h3>" + ESCAPED_LEGACY + "</h3>")
@@ -60,14 +60,14 @@ class ModularReportTest {
 
 	@Test
 	void every_finding_is_in_the_page() {
-		assertThat(report.findings()).hasSize(6).allSatisfy(finding -> {
+		assertThat(report.findings()).hasSize(9).allSatisfy(finding -> {
 			assertThat(html).contains("<p class=\"what\">" + Text.escape(finding.title()) + "</p>");
 			assertThat(finding.details()).allSatisfy(line -> assertThat(html).contains("<li>" + Text.escape(line)
 				+ "</li>"));
 		});
-		assertThat(html).contains("<li class=\"finding error\"><span class=\"level\">error</span>")
-			.contains("<li class=\"finding warning\"><span class=\"level\">warning</span>")
-			.contains("<li class=\"finding hint\"><span class=\"level\">hint</span>")
+		assertThat(html).contains("<li class=\"finding error\" id=\"finding-1\"><span class=\"level\">error</span>")
+			.contains("<li class=\"finding warning\" id=\"finding-2\"><span class=\"level\">warning</span>")
+			.contains("<li class=\"finding hint\" id=\"finding-4\"><span class=\"level\">hint</span>")
 			.contains("A hint can be a false alarm.");
 	}
 
@@ -224,8 +224,74 @@ class ModularReportTest {
 			.contains("No module found in the scanned packages.");
 	}
 
+	@Test
+	void main_takes_the_exclusions_and_the_page_names_them(@TempDir Path directory) throws IOException {
+		ModularReport.main(new String[] {"--exclude-class=**$$*", "--exclude-class=**._*",
+			"--exclude-use=io.example.Link", directory.toString(), "org.asymetrik.modular.report"});
+
+		assertThat(Files.readString(directory.resolve("index.html"), StandardCharsets.UTF_8))
+			.contains("<p class=\"scanned\">Left out: classes matching <code>**$$*</code>, <code>**._*</code>; "
+				+ "uses of <code>io.example.Link</code>.</p>");
+	}
+
+	@Test
+	void the_page_names_the_exclusions_of_one_kind_and_none_without_exclusions() {
+		ModuleAnalysis.Exclusions classesOnly = new ModuleAnalysis.Exclusions(List.of("**.Stray"), List.of());
+		ModuleAnalysis.Exclusions usesOnly = new ModuleAnalysis.Exclusions(List.of(), List.of("**.Stray"));
+
+		assertThat(ModularReport.of(ModuleAnalysis.of(ModuleAnalysis.ClassScope.ALL_CLASSES, List.of(TESTAPP),
+			classesOnly)).html()).contains("Left out: classes matching <code>**.Stray</code>.</p>");
+		assertThat(ModularReport.of(ModuleAnalysis.of(ModuleAnalysis.ClassScope.ALL_CLASSES, List.of(TESTAPP),
+			usesOnly)).html()).contains("Left out: uses of <code>**.Stray</code>.</p>");
+		assertThat(html).doesNotContain("Left out:");
+	}
+
+	@Test
+	void a_module_with_findings_has_the_color_of_the_most_serious_one() {
+		// legacy breaks a rule, billing is in a cycle, catalog exports a package that no one uses
+		assertThat(html).contains("<article class=\"module error\" id=\"module-3\">")
+			.contains("<article class=\"module warning\" id=\"module-1\">")
+			.contains("<article class=\"module hint\" id=\"module-2\">");
+
+		// The modules table
+		assertThat(html).contains("<tr class=\"warning\"><th scope=\"row\"><a href=\"#module-1\"><code>billing</code>"
+				+ "</a> <span class=\"flag warning\">1 warning, 2 hints</span></th>")
+			.contains("<tr class=\"error\"><th scope=\"row\"><a href=\"#module-3\"><code>" + ESCAPED_LEGACY
+				+ "</code></a> <span class=\"flag error\">1 error, 1 hint</span></th>");
+
+		// The diagram
+		assertThat(html).contains("<g class=\"node warning\" data-module=")
+			.contains("<g class=\"node error\" data-module=")
+			.contains("<title>billing, 1 type, 1 warning, 2 hints</title>")
+			.contains("A box with findings takes the color of the most serious one");
+
+		// The section lists its findings, linked to the Findings section
+		assertThat(html).contains("<li class=\"finding error\" id=\"finding-1\">");
+		assertThat(section("module-3")).contains("<dt>Findings</dt><dd><ul class=\"about\"><li><span class=\"flag "
+			+ "error\">error</span> <a href=\"#finding-1\">&#39;" + ESCAPED_LEGACY + "&#39; uses &#39;catalog&#39; "
+			+ "without requiring it</a></li>");
+	}
+
+	@Test
+	void the_modules_table_gives_the_numbers_of_each_module() {
+		assertThat(html).contains("<thead><tr><th scope=\"col\">Module</th><th scope=\"col\" class=\"num\">Types</th>"
+				+ "<th scope=\"col\" class=\"num\">Exported</th><th scope=\"col\" class=\"num\">Methods</th>")
+			// catalog: 3 types, 2 of them exported
+			.contains("<code>catalog</code></a> <span class=\"flag hint\">1 hint</span></th><td class=\"num\">3</td>"
+				+ "<td class=\"num\">2</td>")
+			.doesNotContain("class=\"bar\"");
+	}
+
+	@Test
+	void a_page_without_findings_has_no_color() {
+		String clean = ModularReport.of(ModuleAnalysis.of("org.asymetrik.modular.report.cleanapp")).html();
+
+		assertThat(clean).doesNotContain("<ul class=\"about\">").doesNotContain("A box with findings")
+			.doesNotContain("<tr class=").doesNotContain("class=\"node ").doesNotContain("class=\"module ");
+	}
+
 	private String section(String id) {
-		int start = html.indexOf("<article class=\"module\" id=\"" + id + "\">");
+		int start = html.indexOf("\" id=\"" + id + "\">\n<header>");
 		return html.substring(start, html.indexOf("</article>", start));
 	}
 

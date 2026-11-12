@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 
 import java.util.List;
+import java.util.Map;
 
 import org.asymetrik.modular.report.Finding.Kind;
 import org.asymetrik.modular.report.Finding.Level;
@@ -13,6 +14,7 @@ import org.junit.jupiter.api.Test;
 class FindingsTest {
 
 	private static final String TESTAPP = "org.asymetrik.modular.report.testapp";
+	private static final String DESIGNAPP = "org.asymetrik.modular.report.designapp";
 	private static final String LEGACY = "legacy <old> & \"co\"";
 
 	// The fixtures are test classes: the analysis has to include them
@@ -28,7 +30,13 @@ class FindingsTest {
 			tuple(Level.HINT, Kind.EXPORT_NOT_USED,
 				"'catalog' exports '" + TESTAPP + ".catalog.spi', but no other module uses it"),
 			tuple(Level.HINT, Kind.EXPORT_NOT_USED,
-				"'" + LEGACY + "' exports its own package, but no other module uses it"));
+				"'" + LEGACY + "' exports its own package, but no other module uses it"),
+			tuple(Level.HINT, Kind.LEAKY_API,
+				"'orders' uses exported types of 'billing' that use 'money', without requiring 'money'"),
+			tuple(Level.HINT, Kind.LEAKY_API,
+				"'web' uses exported types of 'orders' that use 'billing', without requiring 'billing'"),
+			tuple(Level.HINT, Kind.LEAKY_API,
+				"'billing' uses exported types of 'orders' that use 'catalog', without requiring 'catalog'"));
 	}
 
 	@Test
@@ -85,5 +93,123 @@ class FindingsTest {
 		// The fixtures are test classes
 		assertThat(ModularReport.of(TESTAPP).findings()).isEmpty();
 		assertThat(ModularReport.of(List.of(TESTAPP)).html()).contains("No module found in the scanned packages.");
+	}
+
+	@Test
+	void a_used_jdk_module_and_java_base_get_no_hint() {
+		ModularReport jdk = ModularReport.of(ModuleAnalysis.of("org.asymetrik.modular.report.jdkapp"));
+
+		// java.net.http is used, java.base is used by every class, java.management is not used
+		assertThat(jdk.findings()).extracting(Finding::level, Finding::kind, Finding::title).containsExactly(
+			tuple(Level.HINT, Kind.REQUIRES_NOT_USED, "'jdkapp' requires 'java.management', but no use of it was found"));
+	}
+
+	@Test
+	void an_excluded_class_gives_no_finding() {
+		// LegacyReport is the class behind the violation, Stray the class outside the modules
+		ModularReport excluded = ModularReport.of(ModuleAnalysis.of(ModuleAnalysis.ClassScope.ALL_CLASSES,
+			List.of(TESTAPP), new ModuleAnalysis.Exclusions(List.of("**.LegacyReport", "**.Stray"), List.of())));
+
+		assertThat(excluded.findings()).extracting(Finding::kind)
+			.doesNotContain(Kind.VIOLATION, Kind.CLASSES_OUTSIDE_MODULES)
+			.contains(Kind.CYCLE);
+	}
+
+	@Test
+	void design_hints_point_at_large_types_leaky_apis_borrowed_exceptions_and_exported_helpers() {
+		ModularReport design = ModularReport.of(ModuleAnalysis.of(DESIGNAPP));
+
+		// Medium has 35 methods; informed requires base and only catches CoreException
+		assertThat(design.findings()).extracting(Finding::level, Finding::kind, Finding::title).containsExactly(
+			tuple(Level.HINT, Kind.LARGE_TYPE, "'" + DESIGNAPP + ".core.Big', in 'core', has 36 methods"),
+			tuple(Level.HINT, Kind.LEAKY_API,
+				"'client' uses exported types of 'core' that use 'base', without requiring 'base'"),
+			tuple(Level.HINT, Kind.BORROWED_EXCEPTION, "'client' creates exceptions of 'core'"),
+			tuple(Level.HINT, Kind.EXPORTED_HELPER, "'core' exports '" + DESIGNAPP
+				+ ".core.Texts', a class of static helpers, which 'client' uses"));
+	}
+
+	@Test
+	void a_design_hint_names_the_classes_behind_it_and_what_to_do() {
+		List<Finding> findings = ModularReport.of(ModuleAnalysis.of(DESIGNAPP)).findings();
+
+		assertThat(findings.get(0).details()).hasSize(2);
+		assertThat(findings.get(0).details().get(0)).matches("[0-9.]+ (B|kB) of class files, [0-9]+% of 'core'");
+		assertThat(findings.get(0).details().get(1)).startsWith("Above 35 methods");
+		assertThat(findings.get(1).details()).containsExactly(
+			DESIGNAPP + ".core.CoreView uses " + DESIGNAPP + ".base.BaseId",
+			DESIGNAPP + ".client.Client uses " + DESIGNAPP + ".core.CoreView",
+			"Keep 'base' out of the exported types of 'core', or require 'base' where they are used.");
+		assertThat(findings.get(2).details()).containsExactly(
+			DESIGNAPP + ".client.Client creates " + DESIGNAPP + ".core.CoreException",
+			"Its errors then depend on how 'core' handles them: give 'client' exceptions of its own. "
+				+ "Catching them is fine.");
+		assertThat(findings.get(3).details()).containsExactly(
+			DESIGNAPP + ".client.Client uses it",
+			"Shared code that belongs to neither module: move it to a module of its own, or to the module that uses it.");
+	}
+
+	@Test
+	void a_module_much_larger_than_the_others_is_a_warning() {
+		List<Finding> findings = ModularReport.of(ModuleAnalysis.of("org.asymetrik.modular.report.sizeapp"))
+			.findings();
+
+		assertThat(findings).extracting(Finding::level, Finding::kind, Finding::modules)
+			.containsExactly(tuple(Level.WARNING, Kind.LARGE_MODULE, List.of("large")));
+		Finding large = findings.get(0);
+		assertThat(large.title()).matches("'large' has [0-9.]+ kB of class files, [0-9.]+ times the median module's "
+			+ "[0-9]+ B");
+		assertThat(large.details()).hasSize(5);
+		assertThat(large.details().get(0)).startsWith("20 types, ");
+		// The largest types first
+		assertThat(large.details().get(1)).startsWith("org.asymetrik.modular.report.sizeapp.large.Part01: ");
+		assertThat(large.details().get(4)).isEqualTo("A module much larger than the others usually holds several "
+			+ "parts of the domain: split it by part.");
+	}
+
+	@Test
+	void a_module_with_few_types_is_not_large_whatever_the_others() {
+		// catalog is more than 3 times the median module, but has 3 types
+		assertThat(report.findings()).extracting(Finding::kind).doesNotContain(Kind.LARGE_MODULE);
+		assertThat(Findings.LARGE_MODULE_MIN_TYPES).isEqualTo(20);
+	}
+
+	@Test
+	void a_finding_names_the_modules_to_look_at() {
+		assertThat(report.findings()).extracting(Finding::kind, Finding::modules).containsExactly(
+			tuple(Kind.VIOLATION, List.of(LEGACY)),
+			tuple(Kind.CYCLE, List.of("billing", "orders")),
+			tuple(Kind.CLASSES_OUTSIDE_MODULES, List.of()),
+			tuple(Kind.REQUIRES_NOT_USED, List.of("orders")),
+			tuple(Kind.EXPORT_NOT_USED, List.of("catalog")),
+			tuple(Kind.EXPORT_NOT_USED, List.of(LEGACY)),
+			// The module that leaks, then the ones that receive
+			tuple(Kind.LEAKY_API, List.of("billing", "orders")),
+			tuple(Kind.LEAKY_API, List.of("orders", "web")),
+			tuple(Kind.LEAKY_API, List.of("orders", "billing")));
+
+		List<Finding> design = ModularReport.of(ModuleAnalysis.of(DESIGNAPP)).findings();
+		assertThat(design).filteredOn(finding -> finding.kind() != Kind.LEAKY_API)
+			.allSatisfy(finding -> assertThat(finding.modules()).hasSize(1));
+	}
+
+	@Test
+	void a_module_takes_the_most_serious_level_of_its_findings() {
+		ModuleAnalysis analysis = ModuleAnalysis.of(TESTAPP);
+		Findings findings = new Findings(analysis, ModuleGraph.of(analysis));
+
+		assertThat(findings.levelOfModules()).containsOnly(
+			Map.entry(LEGACY, Level.ERROR),
+			Map.entry("billing", Level.WARNING),
+			Map.entry("orders", Level.WARNING),
+			Map.entry("catalog", Level.HINT),
+			Map.entry("web", Level.HINT));
+		assertThat(findings.about("billing")).extracting(Finding::kind)
+			.containsExactly(Kind.CYCLE, Kind.LEAKY_API, Kind.LEAKY_API);
+	}
+
+	@Test
+	void a_finding_about_no_module_says_so() {
+		assertThat(new Finding(Level.HINT, Kind.LARGE_TYPE, "title", List.of()).modules()).isEmpty();
 	}
 }
