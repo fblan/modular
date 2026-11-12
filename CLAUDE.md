@@ -68,7 +68,7 @@ modular/
 │   └── src/main/
 │       ├── java/org/asymetrik/modular/report/
 │       │   ├── ModularReport.java   # Entry point: of(...), findings(), html(), writeTo(Path), main
-│       │   ├── Finding.java         # A finding: level (ERROR, WARNING, HINT), kind, title, details
+│       │   ├── Finding.java         # A finding: level (ERROR, WARNING, HINT), kind, title, details, modules
 │       │   ├── ModuleGraph.java     # Dependencies between modules, and the cycles
 │       │   ├── Findings.java        # Computes the findings
 │       │   ├── DiagramLayout.java   # Positions of the diagram's boxes and arrows (layers)
@@ -190,10 +190,13 @@ Located in `report/src/main/java/org/asymetrik/modular/report/ModularReport.java
   (`[--exclude-class=<pattern>]... [--exclude-use=<pattern>]... <output directory> <package>...`), since it needs the
   class path of the application. With exclusions, the masthead says what was left out
 - `of(String...)` / `of(List)` leave test classes out; `of(ModuleAnalysis)` reports on any analysis
-- `findings()`: violations (`ERROR`), cycles and classes in no module (`WARNING`), `requires` not seen in use and
+- `findings()`: violations (`ERROR`), cycles, classes in no module and large modules (`WARNING`; large from 0.1.2: at
+  least `Findings.LARGE_MODULE_MIN_TYPES` (20) types and more than `LARGE_MODULE_FACTOR` (3) times the median
+  module's class file bytes, given at least 3 modules), `requires` not seen in use and
   exported packages not used (`HINT`, can be false alarms as only bytecode is read; never given for `java.base`), and
   design hints (`HINT`, from 0.1.2): large types (more than `Findings.MAX_METHODS`, 35), leaky APIs, borrowed
-  exceptions and exported helpers
+  exceptions and exported helpers. Each finding names the modules to look at (`Finding.modules()`): the page colors
+  them by their most serious finding (diagram box, modules table, module section with links to the findings)
 - **Page rules**: no network reference, no JavaScript library, complete without JavaScript (the script only
   highlights a module's arrows), light and dark themes from CSS tokens in `report.css`, every name escaped with
   `Text.escape`, and the same page for the same classes apart from the generation time
@@ -241,7 +244,8 @@ mvn test -pl verification
 - GroupId: org.asymetrik.modular
 - Published modules: `annotations`, `processor`, `verification`, `report`, `specification` (`sample-fizzbuzz` is excluded)
 - Not released yet (from 0.1.2): `ModuleAnalysis.Exclusions`, the report's `--exclude-*` options, JDK modules
-  other than `java.base` as dependencies, and the report's design hints with the data behind them. `README.md` and
+  other than `java.base` as dependencies, the report's design hints with the data behind them, its large-module
+  warning and the colors of the modules with findings (`Finding.modules()`). `README.md` and
   `SKILL.md` describe the released version and mark these "from 0.1.2": drop the marks, and move their versions to
   0.1.2, when it is released
 
@@ -282,6 +286,9 @@ mvn test -pl verification
 - **Design Hints**: `src/main/doc/SPEC_20261112_0002_design_hints.md`
   - Report hints for large types, leaky APIs, borrowed exceptions and exported helpers
 
+- **Module Colors and Large Modules**: `src/main/doc/SPEC_20261112_0003_module_colors_and_large_modules.md`
+  - Warn about modules much larger than the others; color the modules that have findings
+
 ## Key Files to Know
 - `README.md` - User documentation: setup, rules, requirements, errors and fixes. Keep it in sync with features
 - `.claude-plugin/marketplace.json` - Claude Code marketplace `asymetrik`, listing the `modular` plugin
@@ -297,7 +304,7 @@ mvn test -pl verification
 - `verification/src/test/java/org/asymetrik/modular/verification/ModuleAnalysisTest.java` - Tests of the model, on the `shop` (valid, with a cycle) and `broken` (three violations) fixtures, `exclusions` (generated and woven code), `jdkuse` (a JDK module) and `traits` (exceptions, static helpers, instances created)
 - `verification/src/test/java/org/asymetryk/modular/verification/ModularVerifierTest.java` - Test cases showing intended behavior
 - `report/pom.xml` - Report module POM (depends on `verification` only)
-- `report/src/test/java/org/asymetrik/modular/report/` - Tests of the report, on the `testapp` (one of each finding, a module name to escape), `cleanapp` (no finding), `brokenapp` (unknown `requires`), `jdkapp` (JDK modules) and `designapp` (one of each design hint) fixtures
+- `report/src/test/java/org/asymetrik/modular/report/` - Tests of the report, on the `testapp` (one of each finding, a module name to escape), `cleanapp` (no finding), `brokenapp` (unknown `requires`), `jdkapp` (JDK modules), `designapp` (one of each design hint) and `sizeapp` (a large module) fixtures
 - `sample-fizzbuzz/src/test/java/org/asymetrik/modular/sample/fizzbuzz/ModuleReportTest.java` - Writes the sample's report to `target/modular-report/index.html`
 - `src/main/doc/images/module-report.png` - Screenshot of the sample's report shown in `README.md`; take it again when the page changes
 
