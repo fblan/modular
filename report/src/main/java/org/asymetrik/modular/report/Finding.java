@@ -24,8 +24,9 @@ import java.util.List;
  * @param kind what was found
  * @param title one sentence saying what was found, and where
  * @param details the lines behind the title: the classes, the uses, the suggestion
+ * @param modules the names of the modules it is about, the ones to look at: empty when it is about no module
  */
-public record Finding(Level level, Kind kind, String title, List<String> details) {
+public record Finding(Level level, Kind kind, String title, List<String> details, List<String> modules) {
 
 	/** How serious a finding is. */
 	public enum Level {
@@ -45,6 +46,11 @@ public record Finding(Level level, Kind kind, String title, List<String> details
 		CYCLE,
 		/** Scanned classes that are in no module. */
 		CLASSES_OUTSIDE_MODULES,
+		/**
+		 * A module whose class files are more than {@link Findings#LARGE_MODULE_FACTOR} times the median module's, with
+		 * at least {@link Findings#LARGE_MODULE_MIN_TYPES} types: it probably holds several parts of the domain.
+		 */
+		LARGE_MODULE,
 		/** A name in {@code requires} that the module's bytecode does not use. */
 		REQUIRES_NOT_USED,
 		/** An exported package that no other module uses. */
@@ -62,8 +68,14 @@ public record Finding(Level level, Kind kind, String title, List<String> details
 		EXPORTED_HELPER
 	}
 
-	/** Copies the details, so that a finding cannot change. */
+	/** Copies the details and the modules, so that a finding cannot change. */
 	public Finding {
 		details = List.copyOf(details);
+		modules = List.copyOf(modules);
+	}
+
+	/** A finding about no module. */
+	public Finding(Level level, Kind kind, String title, List<String> details) {
+		this(level, kind, title, details, List.of());
 	}
 }

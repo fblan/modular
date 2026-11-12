@@ -89,8 +89,9 @@ their types, what each module really uses (`dependencies()`), and the classes in
 Optional HTML report, in the `report` artifact (test scope): from a test,
 `ModularReport.of("com.example").writeTo(Path.of("target/modular-report"))` writes `index.html`: the size of each
 module, a diagram of the dependencies, a dependency matrix, and findings (violations, cycles, classes in no module,
-`requires` and `exports` that seem unused; the last two are hints and can be false alarms). From 0.1.2, it also gives
-design hints: types with more than 35 methods, exported types that hand on a module their user doesn't require,
+`requires` and `exports` that seem unused; the last two are hints and can be false alarms). From 0.1.2, it also warns
+about modules much larger than the others (at least 20 types, and more than 3 times the median module's class files),
+colors each module by its most serious finding, and gives design hints: types with more than 35 methods, exported types that hand on a module their user doesn't require,
 exceptions of another module that a module creates, and exported classes of static helpers (not factories). Treat a hint as a
 question for the user, not a rule to fix. It never fails a build.
 Without a test: `java -cp <class path> org.asymetrik.modular.report.ModularReport <output directory> <package>...`.

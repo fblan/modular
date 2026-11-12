@@ -388,10 +388,12 @@ java -cp <class path> org.asymetrik.modular.report.ModularReport \
 - **Findings**: what to look at, most serious first (see below).
 - **Diagram**: a box per module, an arrow from a module to each module it uses. A module sits below the modules
   that use it, so arrows point down; the arrows of a cycle are red. A box is taller when the module has more types,
-  an arrow is wider when there are more uses. Select a module to highlight its arrows.
+  an arrow is wider when there are more uses. Select a module to highlight its arrows. From 0.1.2, a module with
+  findings takes the color of the most serious one: red for an error, amber for a warning, blue for a hint.
 - **Dependency matrix**: the number of uses of each module by each other module.
 - **Modules**: for each module, its exports and requires, its size (types, methods, class file bytes), what it
-  uses and who uses it, with the classes behind each dependency, and its types.
+  uses and who uses it, with the classes behind each dependency, and its types. From 0.1.2, a module with findings
+  is marked in the table, with their number, and its section lists them, linked to the Findings section.
 - **Outside the modules**: the virtual modules, JPMS modules and unmanaged packages that the modules use.
 
 | Finding | Level | Meaning |
@@ -399,6 +401,7 @@ java -cp <class path> org.asymetrik.modular.report.ModularReport \
 | Violation | error | A module rule is broken: the same violations as `ModuleAnalysis.violations()`. |
 | Cycle | warning | Modules that use each other, directly or not. No rule forbids it, so only the report shows it. |
 | Classes in no module | warning | Scanned classes that are in no `@Module` and in no `@ExternalModule`. |
+| Large module (from 0.1.2) | warning | A module with at least 20 types whose class files are more than 3 times the median module's (given at least 3 modules): it probably holds several parts of the domain. |
 | `requires` not seen in use | hint | A name in `requires` that the module's classes do not use. |
 | Exported package not used | hint | A package in `exports` that no other module uses. |
 | Large type (from 0.1.2) | hint | A type with more than 35 methods, SonarQube's default limit: it probably does several jobs. |
