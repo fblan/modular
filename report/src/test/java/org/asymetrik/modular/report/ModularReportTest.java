@@ -224,6 +224,28 @@ class ModularReportTest {
 			.contains("No module found in the scanned packages.");
 	}
 
+	@Test
+	void main_takes_the_exclusions_and_the_page_names_them(@TempDir Path directory) throws IOException {
+		ModularReport.main(new String[] {"--exclude-class=**$$*", "--exclude-class=**._*",
+			"--exclude-use=io.example.Link", directory.toString(), "org.asymetrik.modular.report"});
+
+		assertThat(Files.readString(directory.resolve("index.html"), StandardCharsets.UTF_8))
+			.contains("<p class=\"scanned\">Left out: classes matching <code>**$$*</code>, <code>**._*</code>; "
+				+ "uses of <code>io.example.Link</code>.</p>");
+	}
+
+	@Test
+	void the_page_names_the_exclusions_of_one_kind_and_none_without_exclusions() {
+		ModuleAnalysis.Exclusions classesOnly = new ModuleAnalysis.Exclusions(List.of("**.Stray"), List.of());
+		ModuleAnalysis.Exclusions usesOnly = new ModuleAnalysis.Exclusions(List.of(), List.of("**.Stray"));
+
+		assertThat(ModularReport.of(ModuleAnalysis.of(ModuleAnalysis.ClassScope.ALL_CLASSES, List.of(TESTAPP),
+			classesOnly)).html()).contains("Left out: classes matching <code>**.Stray</code>.</p>");
+		assertThat(ModularReport.of(ModuleAnalysis.of(ModuleAnalysis.ClassScope.ALL_CLASSES, List.of(TESTAPP),
+			usesOnly)).html()).contains("Left out: uses of <code>**.Stray</code>.</p>");
+		assertThat(html).doesNotContain("Left out:");
+	}
+
 	private String section(String id) {
 		int start = html.indexOf("<article class=\"module\" id=\"" + id + "\">");
 		return html.substring(start, html.indexOf("</article>", start));

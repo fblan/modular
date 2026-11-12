@@ -86,4 +86,24 @@ class FindingsTest {
 		assertThat(ModularReport.of(TESTAPP).findings()).isEmpty();
 		assertThat(ModularReport.of(List.of(TESTAPP)).html()).contains("No module found in the scanned packages.");
 	}
+
+	@Test
+	void a_used_jdk_module_and_java_base_get_no_hint() {
+		ModularReport jdk = ModularReport.of(ModuleAnalysis.of("org.asymetrik.modular.report.jdkapp"));
+
+		// java.net.http is used, java.base is used by every class, java.management is not used
+		assertThat(jdk.findings()).extracting(Finding::level, Finding::kind, Finding::title).containsExactly(
+			tuple(Level.HINT, Kind.REQUIRES_NOT_USED, "'jdkapp' requires 'java.management', but no use of it was found"));
+	}
+
+	@Test
+	void an_excluded_class_gives_no_finding() {
+		// LegacyReport is the class behind the violation, Stray the class outside the modules
+		ModularReport excluded = ModularReport.of(ModuleAnalysis.of(ModuleAnalysis.ClassScope.ALL_CLASSES,
+			List.of(TESTAPP), new ModuleAnalysis.Exclusions(List.of("**.LegacyReport", "**.Stray"), List.of())));
+
+		assertThat(excluded.findings()).extracting(Finding::kind)
+			.doesNotContain(Kind.VIOLATION, Kind.CLASSES_OUTSIDE_MODULES)
+			.contains(Kind.CYCLE);
+	}
 }

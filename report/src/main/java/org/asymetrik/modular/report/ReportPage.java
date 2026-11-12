@@ -38,6 +38,7 @@ import org.asymetrik.modular.report.ModuleGraph.Edge;
 import org.asymetrik.modular.verification.ModuleAnalysis;
 import org.asymetrik.modular.verification.ModuleAnalysis.ClassUse;
 import org.asymetrik.modular.verification.ModuleAnalysis.Dependency;
+import org.asymetrik.modular.verification.ModuleAnalysis.Exclusions;
 import org.asymetrik.modular.verification.ModuleAnalysis.ExternalModuleDescription;
 import org.asymetrik.modular.verification.ModuleAnalysis.ModuleDescription;
 import org.asymetrik.modular.verification.ModuleAnalysis.TargetKind;
@@ -124,7 +125,20 @@ final class ReportPage {
 		for (int i = 0; i < analysis.packages().size(); i++) {
 			out.append(i > 0 ? ", " : "").append(code(analysis.packages().get(i)));
 		}
-		out.append("</p>\n<nav aria-label=\"Sections\"><a href=\"#summary\">Summary</a>")
+		out.append("</p>\n");
+		Exclusions exclusions = analysis.exclusions();
+		if (!exclusions.isEmpty()) {
+			out.append("<p class=\"scanned\">Left out:");
+			if (!exclusions.classes().isEmpty()) {
+				out.append(" classes matching ").append(codes(exclusions.classes()))
+					.append(exclusions.uses().isEmpty() ? "." : ";");
+			}
+			if (!exclusions.uses().isEmpty()) {
+				out.append(" uses of ").append(codes(exclusions.uses())).append(".");
+			}
+			out.append("</p>\n");
+		}
+		out.append("<nav aria-label=\"Sections\"><a href=\"#summary\">Summary</a>")
 			.append("<a href=\"#findings\">Findings</a>");
 		if (!modules.isEmpty()) {
 			out.append("<a href=\"#diagram\">Diagram</a>");
@@ -137,6 +151,14 @@ final class ReportPage {
 			out.append("<a href=\"#outside\">Outside the modules</a>");
 		}
 		out.append("</nav>\n</header>\n");
+	}
+
+	private static String codes(List<String> patterns) {
+		StringBuilder joined = new StringBuilder();
+		for (int i = 0; i < patterns.size(); i++) {
+			joined.append(i > 0 ? ", " : "").append(code(patterns.get(i)));
+		}
+		return joined.toString();
 	}
 
 	private void summary() {

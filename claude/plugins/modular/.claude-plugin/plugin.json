@@ -1,7 +1,7 @@
 {
   "name": "modular",
   "description": "Use modular (org.asymetrik.modular) in a Java project: set up the build, declare @Module boundaries, fix violations, write EARS requirements (@Req) and link tests (@TestReq)",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": {
     "name": "Frédéric Blanc",
     "email": "blanc.fr.dev@gmail.com"

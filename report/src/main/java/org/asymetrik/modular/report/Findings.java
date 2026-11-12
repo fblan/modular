@@ -109,7 +109,8 @@ final class Findings {
 			ModuleDescription module = modules.get(i);
 			for (String required : new LinkedHashSet<>(module.requires())) {
 				List<String> key = List.of(module.name(), required);
-				if (!used.contains(key) && !unknown.contains(key)) {
+				// Every class uses java.base, so its uses are not recorded
+				if (!used.contains(key) && !unknown.contains(key) && !required.equals("java.base")) {
 					requiresNotUsed.computeIfAbsent(i, index -> new LinkedHashSet<>()).add(required);
 					all.add(new Finding(Level.HINT, Kind.REQUIRES_NOT_USED,
 						"'" + module.name() + "' requires '" + required + "', but no use of it was found",

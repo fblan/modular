@@ -1,6 +1,7 @@
 package org.asymetrik.modular.verification;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 
 import java.io.IOException;
@@ -13,6 +14,7 @@ import java.util.OptionalLong;
 import org.asymetrik.modular.verification.ModuleAnalysis.ClassScope;
 import org.asymetrik.modular.verification.ModuleAnalysis.ClassUse;
 import org.asymetrik.modular.verification.ModuleAnalysis.Dependency;
+import org.asymetrik.modular.verification.ModuleAnalysis.Exclusions;
 import org.asymetrik.modular.verification.ModuleAnalysis.ExternalModuleDescription;
 import org.asymetrik.modular.verification.ModuleAnalysis.ModuleDescription;
 import org.asymetrik.modular.verification.ModuleAnalysis.Target;
@@ -26,6 +28,9 @@ class ModuleAnalysisTest {
 	private static final String TESTED = "org.asymetrik.modular.verification.testedmodules";
 	private static final String SHOP = TESTED + ".shop";
 	private static final String BROKEN = TESTED + ".broken";
+	private static final String EXCLUSIONS = TESTED + ".exclusions";
+	private static final Exclusions GENERATED_AND_WOVEN = new Exclusions(List.of("**$$Adapter", "**._*"),
+		List.of("**.framework.Link"));
 
 	@Test
 	void modules_are_described_sorted_by_name() {
@@ -199,5 +204,81 @@ class ModuleAnalysisTest {
 		assertThat(analysis.dependencies()).isEmpty();
 		assertThat(analysis.violations()).isEmpty();
 		assertThat(analysis.unassignedClasses()).containsExactly(TESTED + ".nomodules.RegularClass");
+	}
+
+	@Test
+	void generated_and_woven_code_breaks_rules_unless_excluded() {
+		ModuleAnalysis analysis = ModuleAnalysis.of(EXCLUSIONS);
+
+		assertThat(analysis.exclusions()).isEqualTo(Exclusions.NONE);
+		String web = EXCLUSIONS + ".web.";
+		assertThat(analysis.violations()).containsExactlyInAnyOrder(
+			new ModularVerifier.UnmanagedDependencyViolation("excl-web", EXCLUSIONS + ".web", web + "Shop",
+				EXCLUSIONS + ".framework.Link", EXCLUSIONS + ".framework"),
+			new ModularVerifier.RequiresViolation("excl-web", EXCLUSIONS + ".web", web + "Shop$$Adapter", "excl-store",
+				EXCLUSIONS + ".store", EXCLUSIONS + ".store.Store"),
+			new ModularVerifier.RequiresViolation("excl-web", EXCLUSIONS + ".web", web + "Shop$$Adapter$Route",
+				"excl-store", EXCLUSIONS + ".store", EXCLUSIONS + ".store.Store"),
+			new ModularVerifier.UnmanagedDependencyViolation("excl-web", EXCLUSIONS + ".web", web + "_Components",
+				EXCLUSIONS + ".framework.Link", EXCLUSIONS + ".framework"));
+		assertThat(analysis.unassignedClasses()).contains(EXCLUSIONS + ".Orphan$$Adapter");
+	}
+
+	@Test
+	void excluded_classes_are_left_out_entirely() {
+		ModuleAnalysis analysis = ModuleAnalysis.of(ClassScope.ALL_CLASSES, List.of(EXCLUSIONS), GENERATED_AND_WOVEN);
+
+		assertThat(analysis.exclusions()).isEqualTo(GENERATED_AND_WOVEN);
+		assertThat(analysis.violations()).isEmpty();
+		// Shop$$Adapter$Route is left out with its top-level class, though the pattern does not match it
+		assertThat(analysis.modules()).filteredOn(module -> module.name().equals("excl-web")).singleElement()
+			.satisfies(web -> assertThat(web.types()).extracting(TypeDescription::name)
+				.containsExactly(EXCLUSIONS + ".web.Shop"));
+		assertThat(analysis.dependencies()).isEmpty();
+		assertThat(analysis.unassignedClasses()).containsExactly(EXCLUSIONS + ".framework.Link");
+	}
+
+	@Test
+	void an_excluded_use_is_no_dependency() {
+		ModuleAnalysis analysis = ModuleAnalysis.of(ClassScope.ALL_CLASSES, List.of(EXCLUSIONS),
+			new Exclusions(List.of(), List.of("**.framework.Link")));
+
+		assertThat(analysis.dependencies()).extracting(Dependency::moduleName, Dependency::target)
+			.containsExactly(tuple("excl-web", new Target(TargetKind.MODULE, "excl-store")));
+	}
+
+	@Test
+	void patterns_match_whole_class_names() {
+		assertThat(Exclusions.toRegex("**$$*").matcher("com.example.web.Shop$$Adapter").matches()).isTrue();
+		assertThat(Exclusions.toRegex("**$$*").matcher("com.example.web.Shop").matches()).isFalse();
+		// * stops at a dot, ** does not
+		assertThat(Exclusions.toRegex("com.*.Shop").matcher("com.example.Shop").matches()).isTrue();
+		assertThat(Exclusions.toRegex("com.*.Shop").matcher("com.example.web.Shop").matches()).isFalse();
+		assertThat(Exclusions.toRegex("com.**.Shop").matcher("com.example.web.Shop").matches()).isTrue();
+		// Everything else is literal
+		assertThat(Exclusions.toRegex("com.example.Shop").matcher("comXexampleXShop").matches()).isFalse();
+		assertThat(Exclusions.toRegex("**RepositoryImpl").matcher("com.example.ShopRepositoryImpl").matches()).isTrue();
+		assertThat(Exclusions.toRegex("**RepositoryImpl").matcher("com.example.ShopRepositoryImpl2").matches()).isFalse();
+	}
+
+	@Test
+	void a_blank_pattern_is_rejected() {
+		assertThatThrownBy(() -> new Exclusions(List.of(" "), List.of()))
+			.isInstanceOf(IllegalArgumentException.class);
+		assertThatThrownBy(() -> new Exclusions(List.of(), List.of("")))
+			.isInstanceOf(IllegalArgumentException.class);
+		assertThat(Exclusions.NONE.isEmpty()).isTrue();
+		assertThat(GENERATED_AND_WOVEN.isEmpty()).isFalse();
+	}
+
+	@Test
+	void a_jdk_module_other_than_java_base_is_a_dependency_that_breaks_no_rule() {
+		ModuleAnalysis analysis = ModuleAnalysis.of(TESTED + ".jdkuse");
+
+		// java.util.List is in java.base: left out
+		assertThat(analysis.dependencies()).containsExactly(
+			new Dependency("jdkuse", new Target(TargetKind.JPMS_MODULE, "java.net.http"),
+				List.of(new ClassUse(TESTED + ".jdkuse.Client", "java.net.http.HttpClient"))));
+		assertThat(analysis.violations()).isEmpty();
 	}
 }

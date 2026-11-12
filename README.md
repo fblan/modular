@@ -56,13 +56,13 @@ Requires Java 21 or later. Artifacts are on Maven Central, under the group `org.
 | `processor`     | `ModuleAnnotationProcessor`: checks the module rules                           | compile time    |
 | `specification` | `@Req`, `@TestReq`, and `RequirementProcessor`: checks the requirements         | compile time    |
 | `verification`  | `ModularVerifier`: the same module rules, checked from a test with ArchUnit    | tests (optional) |
-| `report`        | `ModularReport`: an HTML report on the modules (not released yet: from 0.1.1)  | tests (optional) |
+| `report`        | `ModularReport`: an HTML report on the modules                                 | tests (optional) |
 
 ### Maven
 
 ```xml
 <properties>
-    <modular.version>0.1.0</modular.version>
+    <modular.version>0.1.1</modular.version>
 </properties>
 
 <dependencies>
@@ -113,14 +113,14 @@ The annotations are only read at compile time, so `provided` keeps them out of y
 
 ```kotlin
 dependencies {
-    compileOnly("org.asymetrik.modular:annotations:0.1.0")
-    annotationProcessor("org.asymetrik.modular:processor:0.1.0")
+    compileOnly("org.asymetrik.modular:annotations:0.1.1")
+    annotationProcessor("org.asymetrik.modular:processor:0.1.1")
 
     // Optional: requirements
-    compileOnly("org.asymetrik.modular:specification:0.1.0")
-    testCompileOnly("org.asymetrik.modular:specification:0.1.0")
-    annotationProcessor("org.asymetrik.modular:specification:0.1.0")
-    testAnnotationProcessor("org.asymetrik.modular:specification:0.1.0")
+    compileOnly("org.asymetrik.modular:specification:0.1.1")
+    testCompileOnly("org.asymetrik.modular:specification:0.1.1")
+    annotationProcessor("org.asymetrik.modular:specification:0.1.1")
+    testAnnotationProcessor("org.asymetrik.modular:specification:0.1.1")
 }
 ```
 
@@ -291,8 +291,6 @@ violation has a `formatError()` method with a readable message.
 
 ### Every violation, and the modules themselves: `ModuleAnalysis`
 
-*Not released yet: from 0.1.1.*
-
 `ModularVerifier` stops at the first violation. `ModuleAnalysis` gives all of them, and what it learned about the
 modules on the way:
 
@@ -309,9 +307,25 @@ analysis.unassignedClasses();  // scanned classes that are in no module
 - **Types**: each top-level type has its package, whether that package is exported, its number of methods and the
   size of its class files. Nested and anonymous classes are counted with their top-level type.
 - **Dependencies**: one per module and target. The target is a module, a virtual module, a JPMS module, or an
-  unmanaged package. A dependency is listed whether the rules allow it or not; `java.*` is left out.
+  unmanaged package. A dependency is listed whether the rules allow it or not. Uses of `java.base` are left out;
+  from 0.1.2, a use of another JDK module, such as `java.net.http`, is a dependency on that JPMS module. It breaks
+  no rule: `java.*` can be used without `requires`.
 - **Test classes**: `ModuleAnalysis.of(ClassScope.WITHOUT_TESTS, List.of("com.example"))` leaves out the classes of
   test output directories.
+
+- **Generated code** (from 0.1.2): a framework that generates classes in your packages, or weaves code into your
+  classes, makes them use modules that no `requires` lists. The processor reads sources, so it never sees that
+  code; the analysis reads bytecode, so it does. Leave it out with `Exclusions`:
+
+  ```java
+  ModuleAnalysis.of(ClassScope.WITHOUT_TESTS, List.of("com.example"),
+      new Exclusions(List.of("**$$*", "**RepositoryImpl"), List.of("io.example.framework.Link")));
+  ```
+
+  The first list names classes to leave out entirely: they are not measured, not analysed, and not "in no module"
+  (a nested class goes with its top-level class). The second names used classes to ignore: a use of one of them is
+  no dependency and no violation. In a pattern, `*` matches any characters except `.`, `**` any characters, and
+  the rest is literal; it matches the fully qualified name, nested classes written with `$`.
 
 To fail a test with every message at once:
 
@@ -325,8 +339,6 @@ The analysis reads bytecode, so it cannot see what only exists in source: a cons
 compiler inlined, or an annotation with source retention.
 
 ## Module report
-
-*Not released yet: from 0.1.1.*
 
 The rules tell you when a boundary is crossed. The report shows you the modules themselves, to check that they
 are the ones you intended: one HTML page with the size of each module, the dependencies between them, a diagram,
@@ -360,6 +372,14 @@ Without a test, run it with the classes of your application on the class path:
 
 ```bash
 java -cp <class path> org.asymetrik.modular.report.ModularReport target/modular-report com.example
+```
+
+From 0.1.2, the command line takes the exclusions of the analysis (see "Generated code" above), each option
+repeated as needed. The page then says what was left out, under the scanned packages.
+
+```bash
+java -cp <class path> org.asymetrik.modular.report.ModularReport \
+    '--exclude-class=**$$*' '--exclude-use=io.example.framework.Link' target/modular-report com.example
 ```
 
 ### What the report shows

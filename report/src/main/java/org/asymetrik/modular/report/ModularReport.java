@@ -23,6 +23,7 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.SortedMap;
@@ -30,6 +31,7 @@ import java.util.TreeMap;
 
 import org.asymetrik.modular.verification.ModuleAnalysis;
 import org.asymetrik.modular.verification.ModuleAnalysis.ClassScope;
+import org.asymetrik.modular.verification.ModuleAnalysis.Exclusions;
 import org.asymetrik.modular.verification.ModuleAnalysis.ModuleDescription;
 
 /**
@@ -47,6 +49,9 @@ import org.asymetrik.modular.verification.ModuleAnalysis.ModuleDescription;
  * <p>Apart from its generation time, the report of the same classes is always the same.
  */
 public final class ModularReport {
+
+	private static final String EXCLUDE_CLASS = "--exclude-class=";
+	private static final String EXCLUDE_USE = "--exclude-use=";
 
 	private static final DateTimeFormatter GENERATED = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm 'UTC'",
 		Locale.ROOT);
@@ -144,16 +149,49 @@ public final class ModularReport {
 	/**
 	 * Writes the report of some packages. The classes of the application have to be on the class path.
 	 *
-	 * @param args the output directory, then the packages to scan
+	 * <p>Arguments: {@code [--exclude-class=<pattern>]... [--exclude-use=<pattern>]... <output directory>
+	 * <package>...}. The options fill the {@link Exclusions} of the analysis, and can be repeated.
+	 *
+	 * @param args the options, then the output directory, then the packages to scan
 	 */
 	public static void main(String[] args) {
-		if (args.length < 2) {
-			System.err.println("Usage: ModularReport <output directory> <package>...");
-			System.exit(2);
+		List<String> excludedClasses = new ArrayList<>();
+		List<String> excludedUses = new ArrayList<>();
+		List<String> operands = new ArrayList<>();
+		for (String arg : args) {
+			if (arg.startsWith(EXCLUDE_CLASS)) {
+				excludedClasses.add(arg.substring(EXCLUDE_CLASS.length()));
+			} else if (arg.startsWith(EXCLUDE_USE)) {
+				excludedUses.add(arg.substring(EXCLUDE_USE.length()));
+			} else if (arg.startsWith("--")) {
+				usage("Unknown option: " + arg);
+				return;
+			} else {
+				operands.add(arg);
+			}
 		}
-		ModularReport report = of(List.of(args).subList(1, args.length));
-		Path file = report.writeTo(Path.of(args[0]));
+		if (operands.size() < 2) {
+			usage("An output directory and at least one package are needed.");
+			return;
+		}
+		Exclusions exclusions;
+		try {
+			exclusions = new Exclusions(excludedClasses, excludedUses);
+		} catch (IllegalArgumentException blank) {
+			usage(blank.getMessage());
+			return;
+		}
+		ModularReport report = of(ModuleAnalysis.of(ClassScope.WITHOUT_TESTS, operands.subList(1, operands.size()),
+			exclusions));
+		Path file = report.writeTo(Path.of(operands.get(0)));
 		System.out.println("Module report: " + file.toAbsolutePath());
 		System.out.println(Text.count(report.findings().size(), "finding"));
+	}
+
+	private static void usage(String problem) {
+		System.err.println(problem);
+		System.err.println("Usage: ModularReport [" + EXCLUDE_CLASS + "<pattern>]... [" + EXCLUDE_USE
+			+ "<pattern>]... <output directory> <package>...");
+		System.exit(2);
 	}
 }

@@ -6,7 +6,7 @@ description: Use modular (org.asymetrik.modular), which turns Java packages into
 # modular
 
 modular declares modules on Java packages with annotations in `package-info.java`. Two annotation processors check
-the rules when the code compiles. Group: `org.asymetrik.modular`. Current version: `0.1.0`. Java 21+.
+the rules when the code compiles. Group: `org.asymetrik.modular`. Current version: `0.1.1`. Java 21+.
 Project: https://github.com/fblan/modular
 
 ## The model, in brief
@@ -42,13 +42,13 @@ where javac no longer discovers processors on the class path.
 <dependency>
     <groupId>org.asymetrik.modular</groupId>
     <artifactId>annotations</artifactId>
-    <version>0.1.0</version>
+    <version>0.1.1</version>
     <scope>provided</scope>
 </dependency>
 <dependency> <!-- only if the user wants @Req / @TestReq -->
     <groupId>org.asymetrik.modular</groupId>
     <artifactId>specification</artifactId>
-    <version>0.1.0</version>
+    <version>0.1.1</version>
     <scope>provided</scope>
 </dependency>
 ```
@@ -62,12 +62,12 @@ where javac no longer discovers processors on the class path.
             <path>
                 <groupId>org.asymetrik.modular</groupId>
                 <artifactId>processor</artifactId>
-                <version>0.1.0</version>
+                <version>0.1.1</version>
             </path>
             <path> <!-- only with specification -->
                 <groupId>org.asymetrik.modular</groupId>
                 <artifactId>specification</artifactId>
-                <version>0.1.0</version>
+                <version>0.1.1</version>
             </path>
         </annotationProcessorPaths>
     </configuration>
@@ -83,6 +83,21 @@ Gradle: `compileOnly` for `annotations` (and `specification`), `annotationProces
 Optional test-time check, in the `verification` artifact (test scope):
 `new ModularVerifier("com.example").verify()` returns `ModularVerifier.Valid` or the first violation. Each
 violation has `formatError()`. It also reports names in `requires` that match nothing, which the processor does not.
+`ModuleAnalysis.of("com.example")`, in the same artifact, gives every violation (`violations()`), the modules and
+their types, what each module really uses (`dependencies()`), and the classes in no module.
+
+Optional HTML report, in the `report` artifact (test scope): from a test,
+`ModularReport.of("com.example").writeTo(Path.of("target/modular-report"))` writes `index.html`: the size of each
+module, a diagram of the dependencies, a dependency matrix, and findings (violations, cycles, classes in no module,
+`requires` and `exports` that seem unused; the last two are hints and can be false alarms). It never fails a build.
+Without a test: `java -cp <class path> org.asymetrik.modular.report.ModularReport <output directory> <package>...`.
+
+Both read bytecode. When a framework generates classes in the application's packages or weaves code into its
+classes (they then use modules that no `requires` lists, and show up as violations that the processor never
+reports), leave them out (from 0.1.2): `ModuleAnalysis.of(ClassScope.WITHOUT_TESTS, packages, new Exclusions(classes,
+uses))`, or `--exclude-class=<pattern>` and `--exclude-use=<pattern>` on the report's command line. In a pattern,
+`*` matches any characters except `.`, `**` any characters: for example `**$$*`, `**RepositoryImpl`. Find the
+patterns from the class names in the violations, and confirm with the user that these classes are generated.
 
 ## Modularizing an existing code base
 
