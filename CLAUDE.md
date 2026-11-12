@@ -169,9 +169,11 @@ Located in `verification/src/main/java/org/asymetrik/modular/verification/Module
   are not measured, analysed or unassigned (a nested class goes with its top-level class); excluded uses are no
   dependency and no violation. `exclusions()` returns them
 - `modules()`: name, package, exports, requires and top-level types (package, exported or not, methods, class file
-  bytes; nested classes count with their top-level type, `package-info` is not a type)
+  bytes, whether it is an exception, whether it is a class of static helpers; nested classes count with their top-level
+  type, `package-info` is not a type)
 - `externalModules()`: the `@ExternalModule` declarations
-- `dependencies()`: one per (module, target), with the (consumer class, used class) pairs behind it. The target is a
+- `dependencies()`: one per (module, target), with the (consumer class, used class) pairs behind it, and whether the
+  consumer creates instances of the used class (a constructor call; `super(...)` is not one). The target is a
   `MODULE`, `EXTERNAL_MODULE`, `JPMS_MODULE` or `UNMANAGED` package. Forbidden uses are listed too; `java.base` and
   uses inside a module are not. Another JDK module (`java.net.http`) is a `JPMS_MODULE` target that breaks no rule
 - `violations()`: every `ModularVerifier.Invalid`, in the order nesting, names (duplicates, then unknown `requires`),
@@ -189,7 +191,9 @@ Located in `report/src/main/java/org/asymetrik/modular/report/ModularReport.java
   class path of the application. With exclusions, the masthead says what was left out
 - `of(String...)` / `of(List)` leave test classes out; `of(ModuleAnalysis)` reports on any analysis
 - `findings()`: violations (`ERROR`), cycles and classes in no module (`WARNING`), `requires` not seen in use and
-  exported packages not used (`HINT`, can be false alarms as only bytecode is read; never given for `java.base`)
+  exported packages not used (`HINT`, can be false alarms as only bytecode is read; never given for `java.base`), and
+  design hints (`HINT`, from 0.1.2): large types (more than `Findings.MAX_METHODS`, 35), leaky APIs, borrowed
+  exceptions and exported helpers
 - **Page rules**: no network reference, no JavaScript library, complete without JavaScript (the script only
   highlights a module's arrows), light and dark themes from CSS tokens in `report.css`, every name escaped with
   `Text.escape`, and the same page for the same classes apart from the generation time
@@ -236,9 +240,10 @@ mvn test -pl verification
 - Version: 0.1.2-SNAPSHOT (last release: 0.1.1)
 - GroupId: org.asymetrik.modular
 - Published modules: `annotations`, `processor`, `verification`, `report`, `specification` (`sample-fizzbuzz` is excluded)
-- Not released yet (from 0.1.2): `ModuleAnalysis.Exclusions`, the report's `--exclude-*` options, and JDK modules
-  other than `java.base` as dependencies. `README.md` and `SKILL.md` describe the released version and mark these
-  "from 0.1.2": drop the marks, and move their versions to 0.1.2, when it is released
+- Not released yet (from 0.1.2): `ModuleAnalysis.Exclusions`, the report's `--exclude-*` options, JDK modules
+  other than `java.base` as dependencies, and the report's design hints with the data behind them. `README.md` and
+  `SKILL.md` describe the released version and mark these "from 0.1.2": drop the marks, and move their versions to
+  0.1.2, when it is released
 
 ## Specifications
 - **Module Annotation Feature**: `src/main/doc/SPEC_20260108_0001_module_annotation.md`
@@ -274,6 +279,9 @@ mvn test -pl verification
 - **Generated Code and JDK Modules**: `src/main/doc/SPEC_20261112_0001_exclusions_and_jdk_modules.md`
   - `Exclusions` for generated and woven code; JDK modules other than `java.base` as dependencies
 
+- **Design Hints**: `src/main/doc/SPEC_20261112_0002_design_hints.md`
+  - Report hints for large types, leaky APIs, borrowed exceptions and exported helpers
+
 ## Key Files to Know
 - `README.md` - User documentation: setup, rules, requirements, errors and fixes. Keep it in sync with features
 - `.claude-plugin/marketplace.json` - Claude Code marketplace `asymetrik`, listing the `modular` plugin
@@ -286,10 +294,10 @@ mvn test -pl verification
 - `sample-fizzbuzz/README.md` - How to run the sample and experiments that trigger each violation
 - `verification/src/main/java/org/asymetrik/modular/verification/ModuleAnalysis.java` - Main verification logic: the model and the rule checks
 - `verification/src/main/java/org/asymetrik/modular/verification/ModularVerifier.java` - `verify()` and the `Result` / violation types
-- `verification/src/test/java/org/asymetrik/modular/verification/ModuleAnalysisTest.java` - Tests of the model, on the `shop` (valid, with a cycle) and `broken` (three violations) fixtures, `exclusions` (generated and woven code) and `jdkuse` (a JDK module)
+- `verification/src/test/java/org/asymetrik/modular/verification/ModuleAnalysisTest.java` - Tests of the model, on the `shop` (valid, with a cycle) and `broken` (three violations) fixtures, `exclusions` (generated and woven code), `jdkuse` (a JDK module) and `traits` (exceptions, static helpers, instances created)
 - `verification/src/test/java/org/asymetryk/modular/verification/ModularVerifierTest.java` - Test cases showing intended behavior
 - `report/pom.xml` - Report module POM (depends on `verification` only)
-- `report/src/test/java/org/asymetrik/modular/report/` - Tests of the report, on the `testapp` (one of each finding, a module name to escape), `cleanapp` (no finding) and `brokenapp` (unknown `requires`) fixtures
+- `report/src/test/java/org/asymetrik/modular/report/` - Tests of the report, on the `testapp` (one of each finding, a module name to escape), `cleanapp` (no finding), `brokenapp` (unknown `requires`), `jdkapp` (JDK modules) and `designapp` (one of each design hint) fixtures
 - `sample-fizzbuzz/src/test/java/org/asymetrik/modular/sample/fizzbuzz/ModuleReportTest.java` - Writes the sample's report to `target/modular-report/index.html`
 - `src/main/doc/images/module-report.png` - Screenshot of the sample's report shown in `README.md`; take it again when the page changes
 

@@ -41,6 +41,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import org.asymetrik.modular.annotations.ExternalModule;
 import org.asymetrik.modular.annotations.ExternalModules;
@@ -55,6 +56,8 @@ import org.asymetrik.modular.verification.ModularVerifier.UnmanagedDependencyVio
 
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
+import com.tngtech.archunit.core.domain.JavaConstructor;
+import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.domain.JavaModifier;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
@@ -173,9 +176,29 @@ public final class ModuleAnalysis {
 	 * @param exported whether the module exports that package
 	 * @param methods its methods, without the constructors and the ones the compiler adds
 	 * @param classFileBytes the size of its class files, empty when they cannot be read
+	 * @param exception whether it is a {@link Throwable}
+	 * @param staticHelper whether it is a class of static helpers: not an interface, enum, record or annotation,
+	 *                     with at least one method, every method and field static, every constructor private, and
+	 *                     no method returning a type of its module (or an array of one), which would make it a
+	 *                     factory. Its nested classes are not looked at.
 	 */
 	public record TypeDescription(String name, String packageName, boolean exported, int methods,
-								  OptionalLong classFileBytes) {}
+								  OptionalLong classFileBytes, boolean exception, boolean staticHelper) {
+
+		/**
+		 * A type that is neither an exception nor a class of static helpers.
+		 *
+		 * @param name its fully qualified name
+		 * @param packageName its package
+		 * @param exported whether the module exports that package
+		 * @param methods its methods, without the constructors and the ones the compiler adds
+		 * @param classFileBytes the size of its class files, empty when they cannot be read
+		 */
+		public TypeDescription(String name, String packageName, boolean exported, int methods,
+							   OptionalLong classFileBytes) {
+			this(name, packageName, exported, methods, classFileBytes, false, false);
+		}
+	}
 
 	/**
 	 * A module declared with {@link Module}.
@@ -210,8 +233,21 @@ public final class ModuleAnalysis {
 	 *
 	 * @param consumerClass the class of the module
 	 * @param usedClass the class it uses
+	 * @param createsInstances whether the consumer, or one of its nested classes, calls a constructor of the used
+	 *                         class
 	 */
-	public record ClassUse(String consumerClass, String usedClass) {}
+	public record ClassUse(String consumerClass, String usedClass, boolean createsInstances) {
+
+		/**
+		 * A use that creates no instance of the used class.
+		 *
+		 * @param consumerClass the class of the module
+		 * @param usedClass the class it uses
+		 */
+		public ClassUse(String consumerClass, String usedClass) {
+			this(consumerClass, usedClass, false);
+		}
+	}
 
 	/**
 	 * What a module really uses of one target, whether it is allowed to or not. Uses of {@code java.base}, of the
@@ -262,6 +298,8 @@ public final class ModuleAnalysis {
 		private int methods;
 		private long bytes;
 		private boolean bytesKnown;
+		private boolean exception;
+		private boolean staticHelper;
 
 		TypeSize(String packageName) {
 			this.packageName = packageName;
@@ -368,7 +406,7 @@ public final class ModuleAnalysis {
 				unassigned.add(topLevelName(clazz));
 				continue;
 			}
-			measure(clazz, typesByModule.get(owner.get()));
+			measure(clazz, owner.get(), typesByModule.get(owner.get()));
 			analyseDependencies(clazz, owner.get(), moduleInfos, externalInfos, usesByModule.get(owner.get()), found);
 		}
 
@@ -504,31 +542,39 @@ public final class ModuleAnalysis {
 			.distinct()
 			.sorted(Comparator.comparing(JavaClass::getName))
 			.toList();
+		// A constructor's call to super(...) creates no instance of the superclass
+		Optional<String> superclass = clazz.getRawSuperclass().map(JavaClass::getName);
+		Set<String> created = clazz.getConstructorCallsFromSelf().stream()
+			.filter(call -> !(call.getOrigin() instanceof JavaConstructor
+				&& superclass.equals(Optional.of(call.getTargetOwner().getName()))))
+			.map(call -> call.getTargetOwner().getName())
+			.collect(Collectors.toSet());
 
 		for (JavaClass dependency : used) {
 			String depPackage = dependency.getPackageName();
-			ClassUse use = new ClassUse(topLevelName(clazz), topLevelName(dependency));
+			ClassUse use = new ClassUse(topLevelName(clazz), topLevelName(dependency),
+				created.contains(dependency.getName()));
 			// java.* is the only package that can be used without being in a module: no rule to check
 			if (isJavaPackage(depPackage)) {
 				findJpmsModuleName(dependency)
 					.filter(jdkModule -> !jdkModule.equals("java.base"))
-					.ifPresent(jdkModule -> usesByTarget.computeIfAbsent(new Target(TargetKind.JPMS_MODULE, jdkModule),
-						t -> new TreeSet<>(BY_CONSUMER_THEN_USED)).add(use));
+					.ifPresent(jdkModule -> addUse(usesByTarget.computeIfAbsent(
+						new Target(TargetKind.JPMS_MODULE, jdkModule), t -> new TreeSet<>(BY_CONSUMER_THEN_USED)), use));
 				continue;
 			}
 			Optional<ModuleInfo> provider = findModuleForPackage(depPackage, modules);
 
 			if (provider.isEmpty()) {
 				Target target = analyseExternalDependency(consumer, clazz, dependency, externalModules, found);
-				usesByTarget.computeIfAbsent(target, t -> new TreeSet<>(BY_CONSUMER_THEN_USED)).add(use);
+				addUse(usesByTarget.computeIfAbsent(target, t -> new TreeSet<>(BY_CONSUMER_THEN_USED)), use);
 				continue;
 			}
 			if (provider.get().equals(consumer)) {
 				continue;
 			}
 
-			usesByTarget.computeIfAbsent(new Target(TargetKind.MODULE, provider.get().name()),
-				t -> new TreeSet<>(BY_CONSUMER_THEN_USED)).add(use);
+			addUse(usesByTarget.computeIfAbsent(new Target(TargetKind.MODULE, provider.get().name()),
+				t -> new TreeSet<>(BY_CONSUMER_THEN_USED)), use);
 
 			if (!consumer.doesRequire(provider.get().name())) {
 				found.add(new RequiresViolation(
@@ -550,6 +596,15 @@ public final class ModuleAnalysis {
 					depPackage
 				));
 			}
+		}
+	}
+
+	/** Adds a use. A type and its nested classes make one consumer: it creates instances if one of them does. */
+	private static void addUse(Set<ClassUse> uses, ClassUse use) {
+		if (!uses.add(use) && use.createsInstances()) {
+			// The set compares consumer and used class only: this replaces the use that creates none
+			uses.remove(use);
+			uses.add(use);
 		}
 	}
 
@@ -648,7 +703,7 @@ public final class ModuleAnalysis {
 	}
 
 	/** Adds a class to the measure of its top-level type. */
-	private static void measure(JavaClass clazz, Map<String, TypeSize> types) {
+	private static void measure(JavaClass clazz, ModuleInfo module, Map<String, TypeSize> types) {
 		TypeSize size = types.computeIfAbsent(topLevelName(clazz), name -> new TypeSize(topLevel(clazz).getPackageName()));
 		size.methods += (int) clazz.getMethods().stream()
 			.filter(method -> !method.getModifiers().contains(JavaModifier.SYNTHETIC))
@@ -657,6 +712,29 @@ public final class ModuleAnalysis {
 			size.bytes += bytes;
 			size.bytesKnown = true;
 		});
+		if (clazz.getEnclosingClass().isEmpty()) {
+			size.exception = clazz.isAssignableTo(Throwable.class);
+			size.staticHelper = isStaticHelper(clazz, module);
+		}
+	}
+
+	private static boolean isStaticHelper(JavaClass clazz, ModuleInfo module) {
+		if (clazz.isInterface() || clazz.isEnum() || clazz.isRecord()) {
+			return false;
+		}
+		List<JavaMethod> methods = clazz.getMethods().stream()
+			.filter(method -> !method.getModifiers().contains(JavaModifier.SYNTHETIC))
+			.toList();
+		return !methods.isEmpty()
+			&& methods.stream().allMatch(method -> method.getModifiers().contains(JavaModifier.STATIC))
+			&& clazz.getFields().stream()
+				.filter(field -> !field.getModifiers().contains(JavaModifier.SYNTHETIC))
+				.allMatch(field -> field.getModifiers().contains(JavaModifier.STATIC))
+			&& clazz.getConstructors().stream()
+				.allMatch(constructor -> constructor.getModifiers().contains(JavaModifier.PRIVATE))
+			// A static factory, such as a module's entry point, returns the module's own types
+			&& methods.stream().noneMatch(method ->
+				module.contains(method.getRawReturnType().getBaseComponentType().getPackageName()));
 	}
 
 	private static ModuleDescription describe(ModuleInfo module, Map<String, TypeSize> types) {
@@ -666,7 +744,9 @@ public final class ModuleAnalysis {
 				type.getValue().packageName,
 				isPackageExported(type.getValue().packageName, module),
 				type.getValue().methods,
-				type.getValue().bytesKnown ? OptionalLong.of(type.getValue().bytes) : OptionalLong.empty()))
+				type.getValue().bytesKnown ? OptionalLong.of(type.getValue().bytes) : OptionalLong.empty(),
+				type.getValue().exception,
+				type.getValue().staticHelper))
 			.toList();
 		return new ModuleDescription(module.name(), module.packageName(), List.of(module.exports()),
 			List.of(module.requires()), described);

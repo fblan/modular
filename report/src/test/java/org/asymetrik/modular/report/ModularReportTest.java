@@ -42,7 +42,7 @@ class ModularReportTest {
 			.contains("<dt>Types</dt><dd class=\"value\">7</dd>")
 			.contains("<dt>Dependencies</dt><dd class=\"value\">6</dd><dd class=\"sub\">between modules, and 2 on what "
 				+ "is outside</dd>")
-			.contains("<dt>Findings</dt><dd class=\"value\">6</dd><dd class=\"sub\">1 error, 2 warnings, 3 hints</dd>")
+			.contains("<dt>Findings</dt><dd class=\"value\">9</dd><dd class=\"sub\">1 error, 2 warnings, 6 hints</dd>")
 			.contains("<p class=\"verdict error\">1 violation of the module rules.");
 	}
 
@@ -60,7 +60,7 @@ class ModularReportTest {
 
 	@Test
 	void every_finding_is_in_the_page() {
-		assertThat(report.findings()).hasSize(6).allSatisfy(finding -> {
+		assertThat(report.findings()).hasSize(9).allSatisfy(finding -> {
 			assertThat(html).contains("<p class=\"what\">" + Text.escape(finding.title()) + "</p>");
 			assertThat(finding.details()).allSatisfy(line -> assertThat(html).contains("<li>" + Text.escape(line)
 				+ "</li>"));

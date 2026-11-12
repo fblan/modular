@@ -48,7 +48,18 @@ public record Finding(Level level, Kind kind, String title, List<String> details
 		/** A name in {@code requires} that the module's bytecode does not use. */
 		REQUIRES_NOT_USED,
 		/** An exported package that no other module uses. */
-		EXPORT_NOT_USED
+		EXPORT_NOT_USED,
+		/** A type with more methods than {@link Findings#MAX_METHODS}: it probably does several jobs. */
+		LARGE_TYPE,
+		/**
+		 * Exported types that use another module, given to a module that does not require it: it cannot use what it
+		 * receives without a new {@code requires}.
+		 */
+		LEAKY_API,
+		/** A module that creates exceptions of another module: its errors depend on how that module handles them. */
+		BORROWED_EXCEPTION,
+		/** An exported class of static helpers that another module uses: shared code that belongs to neither. */
+		EXPORTED_HELPER
 	}
 
 	/** Copies the details, so that a finding cannot change. */

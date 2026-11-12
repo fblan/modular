@@ -401,9 +401,14 @@ java -cp <class path> org.asymetrik.modular.report.ModularReport \
 | Classes in no module | warning | Scanned classes that are in no `@Module` and in no `@ExternalModule`. |
 | `requires` not seen in use | hint | A name in `requires` that the module's classes do not use. |
 | Exported package not used | hint | A package in `exports` that no other module uses. |
+| Large type (from 0.1.2) | hint | A type with more than 35 methods, SonarQube's default limit: it probably does several jobs. |
+| Leaky API (from 0.1.2) | hint | A module uses exported types of another module that use a third one, and doesn't require that third one: it can't use what it receives without a new `requires`. |
+| Borrowed exception (from 0.1.2) | hint | A module creates exceptions of another module, so its errors depend on how that module handles them. Catching them is fine. |
+| Exported helper (from 0.1.2) | hint | An exported class of static helpers (static members only, and no method returning a type of its own module, which would make it a factory) that another module uses: shared code that belongs to neither. |
 
 A hint can be a false alarm. The report reads bytecode: it does not see a constant that the compiler inlined or an
-annotation with source retention, and an exported package can be an entry point, or be used by reflection.
+annotation with source retention, and an exported package can be an entry point, or be used by reflection. A large
+type, an exported helper or a shared exception can also be a choice.
 
 The findings are also available in Java, for example to keep a code base free of cycles:
 

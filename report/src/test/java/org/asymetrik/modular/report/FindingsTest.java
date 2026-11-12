@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 class FindingsTest {
 
 	private static final String TESTAPP = "org.asymetrik.modular.report.testapp";
+	private static final String DESIGNAPP = "org.asymetrik.modular.report.designapp";
 	private static final String LEGACY = "legacy <old> & \"co\"";
 
 	// The fixtures are test classes: the analysis has to include them
@@ -28,7 +29,13 @@ class FindingsTest {
 			tuple(Level.HINT, Kind.EXPORT_NOT_USED,
 				"'catalog' exports '" + TESTAPP + ".catalog.spi', but no other module uses it"),
 			tuple(Level.HINT, Kind.EXPORT_NOT_USED,
-				"'" + LEGACY + "' exports its own package, but no other module uses it"));
+				"'" + LEGACY + "' exports its own package, but no other module uses it"),
+			tuple(Level.HINT, Kind.LEAKY_API,
+				"'orders' uses exported types of 'billing' that use 'money', without requiring 'money'"),
+			tuple(Level.HINT, Kind.LEAKY_API,
+				"'web' uses exported types of 'orders' that use 'billing', without requiring 'billing'"),
+			tuple(Level.HINT, Kind.LEAKY_API,
+				"'billing' uses exported types of 'orders' that use 'catalog', without requiring 'catalog'"));
 	}
 
 	@Test
@@ -105,5 +112,39 @@ class FindingsTest {
 		assertThat(excluded.findings()).extracting(Finding::kind)
 			.doesNotContain(Kind.VIOLATION, Kind.CLASSES_OUTSIDE_MODULES)
 			.contains(Kind.CYCLE);
+	}
+
+	@Test
+	void design_hints_point_at_large_types_leaky_apis_borrowed_exceptions_and_exported_helpers() {
+		ModularReport design = ModularReport.of(ModuleAnalysis.of(DESIGNAPP));
+
+		// Medium has 35 methods; informed requires base and only catches CoreException
+		assertThat(design.findings()).extracting(Finding::level, Finding::kind, Finding::title).containsExactly(
+			tuple(Level.HINT, Kind.LARGE_TYPE, "'" + DESIGNAPP + ".core.Big', in 'core', has 36 methods"),
+			tuple(Level.HINT, Kind.LEAKY_API,
+				"'client' uses exported types of 'core' that use 'base', without requiring 'base'"),
+			tuple(Level.HINT, Kind.BORROWED_EXCEPTION, "'client' creates exceptions of 'core'"),
+			tuple(Level.HINT, Kind.EXPORTED_HELPER, "'core' exports '" + DESIGNAPP
+				+ ".core.Texts', a class of static helpers, which 'client' uses"));
+	}
+
+	@Test
+	void a_design_hint_names_the_classes_behind_it_and_what_to_do() {
+		List<Finding> findings = ModularReport.of(ModuleAnalysis.of(DESIGNAPP)).findings();
+
+		assertThat(findings.get(0).details()).hasSize(2);
+		assertThat(findings.get(0).details().get(0)).matches("[0-9.]+ (B|kB) of class files, [0-9]+% of 'core'");
+		assertThat(findings.get(0).details().get(1)).startsWith("Above 35 methods");
+		assertThat(findings.get(1).details()).containsExactly(
+			DESIGNAPP + ".core.CoreView uses " + DESIGNAPP + ".base.BaseId",
+			DESIGNAPP + ".client.Client uses " + DESIGNAPP + ".core.CoreView",
+			"Keep 'base' out of the exported types of 'core', or require 'base' where they are used.");
+		assertThat(findings.get(2).details()).containsExactly(
+			DESIGNAPP + ".client.Client creates " + DESIGNAPP + ".core.CoreException",
+			"Its errors then depend on how 'core' handles them: give 'client' exceptions of its own. "
+				+ "Catching them is fine.");
+		assertThat(findings.get(3).details()).containsExactly(
+			DESIGNAPP + ".client.Client uses it",
+			"Shared code that belongs to neither module: move it to a module of its own, or to the module that uses it.");
 	}
 }

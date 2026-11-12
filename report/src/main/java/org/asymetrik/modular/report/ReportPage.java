@@ -244,7 +244,8 @@ final class ReportPage {
 		if (findings.count(Level.HINT) > 0) {
 			out.append("<p class=\"note\">A hint can be a false alarm. The report reads bytecode: a use that only ")
 				.append("exists in source, such as an inlined constant or a source-retention annotation, is not ")
-				.append("seen, and an exported package can be an entry point or be used by reflection.</p>\n");
+				.append("seen, and an exported package can be an entry point or be used by reflection. A large type, ")
+				.append("an exported helper or a shared exception can also be a choice.</p>\n");
 		}
 		out.append("</section>\n");
 	}

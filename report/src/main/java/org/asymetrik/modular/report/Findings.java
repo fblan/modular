@@ -17,11 +17,13 @@ package org.asymetrik.modular.report;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
 
 import org.asymetrik.modular.report.Finding.Kind;
 import org.asymetrik.modular.report.Finding.Level;
@@ -36,11 +38,15 @@ import org.asymetrik.modular.verification.ModuleAnalysis;
 import org.asymetrik.modular.verification.ModuleAnalysis.ClassUse;
 import org.asymetrik.modular.verification.ModuleAnalysis.Dependency;
 import org.asymetrik.modular.verification.ModuleAnalysis.ModuleDescription;
+import org.asymetrik.modular.verification.ModuleAnalysis.Target;
 import org.asymetrik.modular.verification.ModuleAnalysis.TargetKind;
 import org.asymetrik.modular.verification.ModuleAnalysis.TypeDescription;
 
 /** Works out the findings of a report. */
 final class Findings {
+
+	/** Above this many methods, a type is a {@link Kind#LARGE_TYPE}: SonarQube's default for too many methods. */
+	static final int MAX_METHODS = 35;
 
 	private final List<Finding> all = new ArrayList<>();
 	private final Map<Integer, Set<String>> requiresNotUsed = new TreeMap<>();
@@ -69,6 +75,10 @@ final class Findings {
 		}
 		findRequiresNotUsed(analysis);
 		findExportsNotUsed(analysis);
+		findLargeTypes(analysis);
+		findLeakyApis(analysis);
+		findBorrowedExceptions(analysis);
+		findExportedHelpers(analysis);
 	}
 
 	/** Errors first, then warnings, then hints. */
@@ -150,6 +160,129 @@ final class Findings {
 					all.add(new Finding(Level.HINT, Kind.EXPORT_NOT_USED,
 						"'" + module.name() + "' exports " + what + ", but no other module uses it", List.of()));
 				}
+			}
+		}
+	}
+
+	private void findLargeTypes(ModuleAnalysis analysis) {
+		for (ModuleDescription module : analysis.modules()) {
+			long moduleBytes = module.types().stream()
+				.mapToLong(type -> type.classFileBytes().orElse(0))
+				.sum();
+			for (TypeDescription type : module.types()) {
+				if (type.methods() <= MAX_METHODS) {
+					continue;
+				}
+				List<String> details = new ArrayList<>();
+				type.classFileBytes().ifPresent(bytes -> details.add(Text.bytes(bytes) + " of class files, "
+					+ Math.round(100.0 * bytes / moduleBytes) + "% of '" + module.name() + "'"));
+				details.add("Above " + MAX_METHODS + " methods, a type usually does several jobs: split it by job.");
+				all.add(new Finding(Level.HINT, Kind.LARGE_TYPE, "'" + type.name() + "', in '" + module.name()
+					+ "', has " + Text.count(type.methods(), "method"), details));
+			}
+		}
+	}
+
+	private void findLeakyApis(ModuleAnalysis analysis) {
+		Map<String, ModuleDescription> modulesByName = new HashMap<>();
+		Set<String> exportedTypes = new HashSet<>();
+		for (ModuleDescription module : analysis.modules()) {
+			modulesByName.putIfAbsent(module.name(), module);
+			module.types().stream().filter(TypeDescription::exported).forEach(type -> exportedTypes.add(type.name()));
+		}
+		for (Dependency exposure : analysis.dependencies()) {
+			Target exposed = exposure.target();
+			// java.* is free, and an unmanaged package is already a violation
+			if (exposed.kind() == TargetKind.UNMANAGED
+				|| exposed.kind() == TargetKind.JPMS_MODULE && exposed.name().startsWith("java.")) {
+				continue;
+			}
+			List<ClassUse> exposing = exposure.uses().stream()
+				.filter(use -> exportedTypes.contains(use.consumerClass()))
+				.toList();
+			Set<String> exposingTypes = new TreeSet<>();
+			exposing.forEach(use -> exposingTypes.add(use.consumerClass()));
+			List<String> lacking = new ArrayList<>();
+			List<String> receiving = new ArrayList<>();
+			for (Dependency consumer : analysis.dependencies()) {
+				if (consumer.target().kind() != TargetKind.MODULE
+					|| !consumer.target().name().equals(exposure.moduleName())
+					|| consumer.moduleName().equals(exposed.name())
+					|| modulesByName.get(consumer.moduleName()).requires().contains(exposed.name())) {
+					continue;
+				}
+				List<ClassUse> received = consumer.uses().stream()
+					.filter(use -> exposingTypes.contains(use.usedClass()))
+					.toList();
+				if (!received.isEmpty()) {
+					lacking.add(consumer.moduleName());
+					received.forEach(use -> receiving.add(use.consumerClass() + " uses " + use.usedClass()));
+				}
+			}
+			if (lacking.isEmpty()) {
+				continue;
+			}
+			List<String> details = new ArrayList<>();
+			exposing.forEach(use -> details.add(use.consumerClass() + " uses " + use.usedClass()));
+			details.addAll(receiving);
+			details.add("Keep '" + exposed.name() + "' out of the exported types of '" + exposure.moduleName()
+				+ "', or require '" + exposed.name() + "' where they are used.");
+			all.add(new Finding(Level.HINT, Kind.LEAKY_API, Text.quotedList(lacking) + " "
+				+ (lacking.size() == 1 ? "uses" : "use") + " exported types of '" + exposure.moduleName()
+				+ "' that use '" + exposed.name() + "', without requiring '" + exposed.name() + "'", details));
+		}
+	}
+
+	private void findBorrowedExceptions(ModuleAnalysis analysis) {
+		Set<String> exceptions = new HashSet<>();
+		for (ModuleDescription module : analysis.modules()) {
+			module.types().stream().filter(TypeDescription::exception).forEach(type -> exceptions.add(type.name()));
+		}
+		for (Dependency dependency : analysis.dependencies()) {
+			if (dependency.target().kind() != TargetKind.MODULE) {
+				continue;
+			}
+			List<String> details = new ArrayList<>(dependency.uses().stream()
+				.filter(use -> use.createsInstances() && exceptions.contains(use.usedClass()))
+				.map(use -> use.consumerClass() + " creates " + use.usedClass())
+				.toList());
+			if (details.isEmpty()) {
+				continue;
+			}
+			details.add("Its errors then depend on how '" + dependency.target().name() + "' handles them: give '"
+				+ dependency.moduleName() + "' exceptions of its own. Catching them is fine.");
+			all.add(new Finding(Level.HINT, Kind.BORROWED_EXCEPTION, "'" + dependency.moduleName()
+				+ "' creates exceptions of '" + dependency.target().name() + "'", details));
+		}
+	}
+
+	private void findExportedHelpers(ModuleAnalysis analysis) {
+		for (ModuleDescription module : analysis.modules()) {
+			for (TypeDescription type : module.types()) {
+				if (!type.exported() || !type.staticHelper()) {
+					continue;
+				}
+				Set<String> users = new TreeSet<>();
+				List<String> details = new ArrayList<>();
+				for (Dependency dependency : analysis.dependencies()) {
+					if (dependency.target().kind() == TargetKind.MODULE
+						&& dependency.target().name().equals(module.name())) {
+						dependency.uses().stream()
+							.filter(use -> use.usedClass().equals(type.name()))
+							.forEach(use -> {
+								users.add(dependency.moduleName());
+								details.add(use.consumerClass() + " uses it");
+							});
+					}
+				}
+				if (users.isEmpty()) {
+					continue;
+				}
+				details.add("Shared code that belongs to neither module: move it to a module of its own, or to the "
+					+ "module that uses it.");
+				all.add(new Finding(Level.HINT, Kind.EXPORTED_HELPER, "'" + module.name() + "' exports '"
+					+ type.name() + "', a class of static helpers, which " + Text.quotedList(List.copyOf(users))
+					+ " " + (users.size() == 1 ? "uses" : "use"), details));
 			}
 		}
 	}

@@ -29,6 +29,7 @@ class ModuleAnalysisTest {
 	private static final String SHOP = TESTED + ".shop";
 	private static final String BROKEN = TESTED + ".broken";
 	private static final String EXCLUSIONS = TESTED + ".exclusions";
+	private static final String TRAITS = TESTED + ".traits";
 	private static final Exclusions GENERATED_AND_WOVEN = new Exclusions(List.of("**$$Adapter", "**._*"),
 		List.of("**.framework.Link"));
 
@@ -87,7 +88,7 @@ class ModuleAnalysisTest {
 			new Dependency("shop-billing", new Target(TargetKind.MODULE, "shop-orders"),
 				List.of(new ClassUse(SHOP + ".billing.Invoice", SHOP + ".orders.Order"))),
 			new Dependency("shop-orders", new Target(TargetKind.MODULE, "shop-billing"),
-				List.of(new ClassUse(SHOP + ".orders.Order", SHOP + ".billing.Invoice"))),
+				List.of(new ClassUse(SHOP + ".orders.Order", SHOP + ".billing.Invoice", true))),
 			new Dependency("shop-orders", new Target(TargetKind.MODULE, "shop-catalog"),
 				List.of(new ClassUse(SHOP + ".orders.Order", SHOP + ".catalog.Product"))));
 	}
@@ -280,5 +281,44 @@ class ModuleAnalysisTest {
 			new Dependency("jdkuse", new Target(TargetKind.JPMS_MODULE, "java.net.http"),
 				List.of(new ClassUse(TESTED + ".jdkuse.Client", "java.net.http.HttpClient"))));
 		assertThat(analysis.violations()).isEmpty();
+	}
+
+	@Test
+	void a_type_says_whether_it_is_an_exception_or_a_class_of_static_helpers() {
+		ModuleDescription provider = ModuleAnalysis.of(TRAITS).modules().get(1);
+
+		assertThat(provider.name()).isEqualTo("traits-provider");
+		assertThat(provider.types()).extracting(TypeDescription::name, TypeDescription::exception,
+			TypeDescription::staticHelper).containsExactly(
+			tuple(TRAITS + ".provider.Constants", false, false),
+			tuple(TRAITS + ".provider.Factory", false, false),
+			tuple(TRAITS + ".provider.Helpers", false, true),
+			tuple(TRAITS + ".provider.Kind", false, false),
+			tuple(TRAITS + ".provider.Mixed", false, false),
+			tuple(TRAITS + ".provider.OpenHelper", false, false),
+			tuple(TRAITS + ".provider.Point", false, false),
+			tuple(TRAITS + ".provider.ProviderException", true, false),
+			tuple(TRAITS + ".provider.Shape", false, false));
+	}
+
+	@Test
+	void a_use_says_whether_it_creates_instances() {
+		ModuleAnalysis analysis = ModuleAnalysis.of(TRAITS);
+
+		// A nested class creates for its top-level type; super(...) and catch create nothing
+		assertThat(analysis.dependencies()).containsExactly(
+			new Dependency("traits-consumer", new Target(TargetKind.MODULE, "traits-provider"), List.of(
+				new ClassUse(TRAITS + ".consumer.Catcher", TRAITS + ".provider.Helpers"),
+				new ClassUse(TRAITS + ".consumer.Catcher", TRAITS + ".provider.ProviderException"),
+				new ClassUse(TRAITS + ".consumer.NestedThrower", TRAITS + ".provider.ProviderException", true),
+				new ClassUse(TRAITS + ".consumer.OwnException", TRAITS + ".provider.ProviderException"),
+				new ClassUse(TRAITS + ".consumer.Thrower", TRAITS + ".provider.ProviderException", true))));
+	}
+
+	@Test
+	void the_shorter_constructors_mean_no_trait_and_no_instance_created() {
+		assertThat(new TypeDescription("a.B", "a", true, 1, OptionalLong.empty()))
+			.isEqualTo(new TypeDescription("a.B", "a", true, 1, OptionalLong.empty(), false, false));
+		assertThat(new ClassUse("a.B", "c.D")).isEqualTo(new ClassUse("a.B", "c.D", false));
 	}
 }
