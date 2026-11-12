@@ -263,8 +263,9 @@ final class Findings {
 				|| exposed.kind() == TargetKind.JPMS_MODULE && exposed.name().startsWith("java.")) {
 				continue;
 			}
+			// An annotation on an exported type is nothing its users have to know
 			List<ClassUse> exposing = exposure.uses().stream()
-				.filter(use -> exportedTypes.contains(use.consumerClass()))
+				.filter(use -> exportedTypes.contains(use.consumerClass()) && !use.annotationsOnly())
 				.toList();
 			Set<String> exposingTypes = new TreeSet<>();
 			exposing.forEach(use -> exposingTypes.add(use.consumerClass()));

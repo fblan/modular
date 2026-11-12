@@ -119,7 +119,8 @@ class FindingsTest {
 	void design_hints_point_at_large_types_leaky_apis_borrowed_exceptions_and_exported_helpers() {
 		ModularReport design = ModularReport.of(ModuleAnalysis.of(DESIGNAPP));
 
-		// Medium has 35 methods; informed requires base and only catches CoreException
+		// Medium has 35 methods; informed requires base and only catches CoreException. CoreException is @Audited, of
+		// marks, which client doesn't require: an annotation is no leak
 		assertThat(design.findings()).extracting(Finding::level, Finding::kind, Finding::title).containsExactly(
 			tuple(Level.HINT, Kind.LARGE_TYPE, "'" + DESIGNAPP + ".core.Big', in 'core', has 36 methods"),
 			tuple(Level.HINT, Kind.LEAKY_API,

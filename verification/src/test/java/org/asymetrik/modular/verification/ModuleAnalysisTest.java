@@ -30,6 +30,7 @@ class ModuleAnalysisTest {
 	private static final String BROKEN = TESTED + ".broken";
 	private static final String EXCLUSIONS = TESTED + ".exclusions";
 	private static final String TRAITS = TESTED + ".traits";
+	private static final String ANNOTATED = TESTED + ".annotated";
 	private static final Exclusions GENERATED_AND_WOVEN = new Exclusions(List.of("**$$Adapter", "**._*"),
 		List.of("**.framework.Link"));
 
@@ -320,5 +321,26 @@ class ModuleAnalysisTest {
 		assertThat(new TypeDescription("a.B", "a", true, 1, OptionalLong.empty()))
 			.isEqualTo(new TypeDescription("a.B", "a", true, 1, OptionalLong.empty(), false, false));
 		assertThat(new ClassUse("a.B", "c.D")).isEqualTo(new ClassUse("a.B", "c.D", false));
+		assertThat(new ClassUse("a.B", "c.D", true)).isEqualTo(new ClassUse("a.B", "c.D", true, false));
+	}
+
+	@Test
+	void a_use_says_whether_it_is_only_in_annotations() {
+		ModuleAnalysis analysis = ModuleAnalysis.of(ANNOTATED);
+		String marks = ANNOTATED + ".marks.";
+		String user = ANNOTATED + ".user.";
+
+		// On a type, a field, a method or a parameter, and an annotation's enum value. A use in a signature, of the
+		// type or of a nested class, makes it more than annotations
+		assertThat(analysis.dependencies()).containsExactly(
+			new Dependency("annotated-user", new Target(TargetKind.MODULE, "annotated-marks"), List.of(
+				new ClassUse(user + "AlsoInSignature", marks + "Level", false, false),
+				new ClassUse(user + "AlsoInSignature", marks + "Tagged", false, true),
+				new ClassUse(user + "NestedUse", marks + "Level", false, false),
+				new ClassUse(user + "NestedUse", marks + "Tagged", false, true),
+				new ClassUse(user + "OnMembers", marks + "Marker", false, true),
+				new ClassUse(user + "OnType", marks + "Marker", false, true),
+				new ClassUse(user + "WithValue", marks + "Level", false, true),
+				new ClassUse(user + "WithValue", marks + "Tagged", false, true))));
 	}
 }
