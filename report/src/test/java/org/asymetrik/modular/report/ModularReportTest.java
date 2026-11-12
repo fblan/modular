@@ -273,6 +273,16 @@ class ModularReportTest {
 	}
 
 	@Test
+	void the_modules_table_gives_the_numbers_of_each_module() {
+		assertThat(html).contains("<thead><tr><th scope=\"col\">Module</th><th scope=\"col\" class=\"num\">Types</th>"
+				+ "<th scope=\"col\" class=\"num\">Exported</th><th scope=\"col\" class=\"num\">Methods</th>")
+			// catalog: 3 types, 2 of them exported
+			.contains("<code>catalog</code></a> <span class=\"flag hint\">1 hint</span></th><td class=\"num\">3</td>"
+				+ "<td class=\"num\">2</td>")
+			.doesNotContain("class=\"bar\"");
+	}
+
+	@Test
 	void a_page_without_findings_has_no_color() {
 		String clean = ModularReport.of(ModuleAnalysis.of("org.asymetrik.modular.report.cleanapp")).html();
 

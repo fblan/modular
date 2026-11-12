@@ -213,8 +213,6 @@ tbody th { font-weight: 500; }
 .overview tr.warning > th { box-shadow: inset 4px 0 var(--warning); }
 .overview tr.hint > th { box-shadow: inset 4px 0 var(--hint); }
 .overview .flag { margin-left: 4px; font-family: var(--sans); }
-.bar { display: block; height: 8px; min-width: 72px; margin-top: 7px; background: var(--sunken); border-radius: 2px; }
-.bar span { display: block; height: 100%; background: var(--accent); border-radius: 2px; }
 
 .matrix { background: var(--surface); border: 1px solid var(--line); }
 .matrix th, .matrix td { border: 1px solid var(--line); padding: 5px 8px; }

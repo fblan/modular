@@ -320,18 +320,13 @@ final class ReportPage {
 	}
 
 	private void modules() {
-		int mostTypes = 1;
-		for (ModuleDescription module : modules) {
-			mostTypes = Math.max(mostTypes, module.types().size());
-		}
 		out.append("<section id=\"modules\">\n<h2>Modules</h2>\n<div class=\"scroll\">\n<table class=\"overview\">\n")
 			.append("<thead><tr><th scope=\"col\">Module</th><th scope=\"col\" class=\"num\">Types</th>")
-			.append("<th scope=\"col\"></th><th scope=\"col\" class=\"num\">Exported types</th>")
+			.append("<th scope=\"col\" class=\"num\">Exported</th>")
 			.append("<th scope=\"col\" class=\"num\">Methods</th><th scope=\"col\" class=\"num\">Class files</th>")
 			.append("<th scope=\"col\" class=\"num\">Uses</th><th scope=\"col\" class=\"num\">Used by</th>")
 			.append("</tr></thead>\n<tbody>\n");
 		for (ModuleDescription module : modules) {
-			int types = module.types().size();
 			out.append("<tr").append(levelClass(module.name(), " class=\"", "\"")).append("><th scope=\"row\">")
 				.append(moduleLink(module.name()));
 			if (levelOf.containsKey(module.name())) {
@@ -339,9 +334,8 @@ final class ReportPage {
 					.append(escape(findingsOf(module.name()))).append("</span>");
 			}
 			out.append("</th><td class=\"num\">")
-				.append(types).append("</td><td><span class=\"bar\"><span style=\"width:")
-				.append(Text.number(100.0 * types / mostTypes)).append("%\"></span></span></td><td class=\"num\">")
-				.append(exportedTypes(module)).append(" of ").append(types).append("</td><td class=\"num\">")
+				.append(module.types().size()).append("</td><td class=\"num\">").append(exportedTypes(module))
+				.append("</td><td class=\"num\">")
 				.append(methods(module)).append("</td><td class=\"num\">").append(Text.bytes(bytes(module)))
 				.append("</td><td class=\"num\">").append(dependenciesOf.getOrDefault(module.name(), List.of()).size())
 				.append("</td><td class=\"num\">").append(usersOf.getOrDefault(module.name(), List.of()).size())
