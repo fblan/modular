@@ -235,17 +235,32 @@ public final class ModuleAnalysis {
 	 * @param usedClass the class it uses
 	 * @param createsInstances whether the consumer, or one of its nested classes, calls a constructor of the used
 	 *                         class
+	 * @param annotationsOnly whether the consumer and its nested classes use the used class only in annotations: as
+	 *                        an annotation's type, or in one of its values, such as an enum constant. A user of the
+	 *                        consumer then never has to know the used class
 	 */
-	public record ClassUse(String consumerClass, String usedClass, boolean createsInstances) {
+	public record ClassUse(String consumerClass, String usedClass, boolean createsInstances, boolean annotationsOnly) {
 
 		/**
-		 * A use that creates no instance of the used class.
+		 * A use that is not only in annotations.
+		 *
+		 * @param consumerClass the class of the module
+		 * @param usedClass the class it uses
+		 * @param createsInstances whether the consumer, or one of its nested classes, calls a constructor of the
+		 *                         used class
+		 */
+		public ClassUse(String consumerClass, String usedClass, boolean createsInstances) {
+			this(consumerClass, usedClass, createsInstances, false);
+		}
+
+		/**
+		 * A use that creates no instance of the used class, and is not only in annotations.
 		 *
 		 * @param consumerClass the class of the module
 		 * @param usedClass the class it uses
 		 */
 		public ClassUse(String consumerClass, String usedClass) {
-			this(consumerClass, usedClass, false);
+			this(consumerClass, usedClass, false, false);
 		}
 	}
 
@@ -389,7 +404,7 @@ public final class ModuleAnalysis {
 		checkModuleNames(moduleInfos, externalInfos, collectUsedJpmsModules(classes, moduleInfos), found);
 
 		Map<ModuleInfo, Map<String, TypeSize>> typesByModule = new LinkedHashMap<>();
-		Map<ModuleInfo, Map<Target, Set<ClassUse>>> usesByModule = new LinkedHashMap<>();
+		Map<ModuleInfo, Map<Target, TreeSet<ClassUse>>> usesByModule = new LinkedHashMap<>();
 		for (ModuleInfo module : moduleInfos) {
 			typesByModule.put(module, new TreeMap<>());
 			usesByModule.put(module, new TreeMap<>(BY_KIND_THEN_NAME));
@@ -533,13 +548,17 @@ public final class ModuleAnalysis {
 
 	/** Records what a class of {@code consumer} uses outside its module, and the rules these uses break. */
 	private void analyseDependencies(JavaClass clazz, ModuleInfo consumer, List<ModuleInfo> modules,
-									 List<ExternalModuleInfo> externalModules, Map<Target, Set<ClassUse>> usesByTarget,
+									 List<ExternalModuleInfo> externalModules, Map<Target, TreeSet<ClassUse>> usesByTarget,
 									 Set<Invalid> found) {
-		List<JavaClass> used = clazz.getDirectDependenciesFromSelf().stream()
-			.map(dependency -> dependency.getTargetClass().getBaseComponentType())
-			.filter(dependency -> !dependency.isPrimitive())
-			.filter(dependency -> !exclusions.excludesUse(dependency.getName()))
-			.distinct()
+		// For each used class, whether every dependency on it comes from an annotation
+		Map<JavaClass, Boolean> annotationsOnly = new HashMap<>();
+		for (com.tngtech.archunit.core.domain.Dependency dependency : clazz.getDirectDependenciesFromSelf()) {
+			JavaClass target = dependency.getTargetClass().getBaseComponentType();
+			if (!target.isPrimitive() && !exclusions.excludesUse(target.getName())) {
+				annotationsOnly.merge(target, fromAnnotation(dependency), Boolean::logicalAnd);
+			}
+		}
+		List<JavaClass> used = annotationsOnly.keySet().stream()
 			.sorted(Comparator.comparing(JavaClass::getName))
 			.toList();
 		// A constructor's call to super(...) creates no instance of the superclass
@@ -553,7 +572,7 @@ public final class ModuleAnalysis {
 		for (JavaClass dependency : used) {
 			String depPackage = dependency.getPackageName();
 			ClassUse use = new ClassUse(topLevelName(clazz), topLevelName(dependency),
-				created.contains(dependency.getName()));
+				created.contains(dependency.getName()), annotationsOnly.get(dependency));
 			// java.* is the only package that can be used without being in a module: no rule to check
 			if (isJavaPackage(depPackage)) {
 				findJpmsModuleName(dependency)
@@ -599,13 +618,33 @@ public final class ModuleAnalysis {
 		}
 	}
 
-	/** Adds a use. A type and its nested classes make one consumer: it creates instances if one of them does. */
-	private static void addUse(Set<ClassUse> uses, ClassUse use) {
-		if (!uses.add(use) && use.createsInstances()) {
-			// The set compares consumer and used class only: this replaces the use that creates none
-			uses.remove(use);
+	/**
+	 * Whether a dependency comes from an annotation: its type, or one of its values. ArchUnit tells it only in the
+	 * description, which it writes as "... is annotated with &lt;type&gt;" or "... has annotation member of type
+	 * &lt;type&gt;". {@code ModuleAnalysisTest} checks it on each kind of annotation.
+	 */
+	private static boolean fromAnnotation(com.tngtech.archunit.core.domain.Dependency dependency) {
+		String target = "<" + dependency.getTargetClass().getName() + ">";
+		String description = dependency.getDescription();
+		return description.contains(" is annotated with " + target)
+			|| description.contains(" has annotation member of type " + target);
+	}
+
+	/**
+	 * Adds a use. A type and its nested classes make one consumer: it creates instances if one of them does, and
+	 * uses the class only in annotations if all of them do.
+	 */
+	private static void addUse(TreeSet<ClassUse> uses, ClassUse use) {
+		// The set compares consumer and used class only
+		ClassUse known = uses.floor(use);
+		if (known == null || !known.consumerClass().equals(use.consumerClass())
+			|| !known.usedClass().equals(use.usedClass())) {
 			uses.add(use);
+			return;
 		}
+		uses.remove(known);
+		uses.add(new ClassUse(use.consumerClass(), use.usedClass(), known.createsInstances() || use.createsInstances(),
+			known.annotationsOnly() && use.annotationsOnly()));
 	}
 
 	/** The owner of a class that is in no module, and the rule its use breaks, if any. */

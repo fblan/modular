@@ -59,7 +59,7 @@ public record Finding(Level level, Kind kind, String title, List<String> details
 		LARGE_TYPE,
 		/**
 		 * Exported types that use another module, given to a module that does not require it: it cannot use what it
-		 * receives without a new {@code requires}.
+		 * receives without a new {@code requires}. A use only in annotations does not count.
 		 */
 		LEAKY_API,
 		/** A module that creates exceptions of another module: its errors depend on how that module handles them. */

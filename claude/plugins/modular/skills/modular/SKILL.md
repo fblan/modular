@@ -6,7 +6,7 @@ description: Use modular (org.asymetrik.modular), which turns Java packages into
 # modular
 
 modular declares modules on Java packages with annotations in `package-info.java`. Two annotation processors check
-the rules when the code compiles. Group: `org.asymetrik.modular`. Current version: `0.1.1`. Java 21+.
+the rules when the code compiles. Group: `org.asymetrik.modular`. Current version: `0.1.2`. Java 21+.
 Project: https://github.com/fblan/modular
 
 ## The model, in brief
@@ -42,13 +42,13 @@ where javac no longer discovers processors on the class path.
 <dependency>
     <groupId>org.asymetrik.modular</groupId>
     <artifactId>annotations</artifactId>
-    <version>0.1.1</version>
+    <version>0.1.2</version>
     <scope>provided</scope>
 </dependency>
 <dependency> <!-- only if the user wants @Req / @TestReq -->
     <groupId>org.asymetrik.modular</groupId>
     <artifactId>specification</artifactId>
-    <version>0.1.1</version>
+    <version>0.1.2</version>
     <scope>provided</scope>
 </dependency>
 ```
@@ -62,12 +62,12 @@ where javac no longer discovers processors on the class path.
             <path>
                 <groupId>org.asymetrik.modular</groupId>
                 <artifactId>processor</artifactId>
-                <version>0.1.1</version>
+                <version>0.1.2</version>
             </path>
             <path> <!-- only with specification -->
                 <groupId>org.asymetrik.modular</groupId>
                 <artifactId>specification</artifactId>
-                <version>0.1.1</version>
+                <version>0.1.2</version>
             </path>
         </annotationProcessorPaths>
     </configuration>
@@ -89,16 +89,15 @@ their types, what each module really uses (`dependencies()`), and the classes in
 Optional HTML report, in the `report` artifact (test scope): from a test,
 `ModularReport.of("com.example").writeTo(Path.of("target/modular-report"))` writes `index.html`: the size of each
 module, a diagram of the dependencies, a dependency matrix, and findings (violations, cycles, classes in no module,
-`requires` and `exports` that seem unused; the last two are hints and can be false alarms). From 0.1.2, it also warns
-about modules much larger than the others (at least 20 types, and more than 3 times the median module's class files),
-colors each module by its most serious finding, and gives design hints: types with more than 35 methods, exported types that hand on a module their user doesn't require,
+`requires` and `exports` that seem unused; the last two are hints and can be false alarms). It also warns about modules much larger than the others (at least 20 types, and more than 3 times the median module's class files),
+colors each module by its most serious finding, and gives design hints: types with more than 35 methods, exported types that hand on a module their user doesn't require (from 0.1.3, annotations on them don't count),
 exceptions of another module that a module creates, and exported classes of static helpers (not factories). Treat a hint as a
 question for the user, not a rule to fix. It never fails a build.
 Without a test: `java -cp <class path> org.asymetrik.modular.report.ModularReport <output directory> <package>...`.
 
 Both read bytecode. When a framework generates classes in the application's packages or weaves code into its
 classes (they then use modules that no `requires` lists, and show up as violations that the processor never
-reports), leave them out (from 0.1.2): `ModuleAnalysis.of(ClassScope.WITHOUT_TESTS, packages, new Exclusions(classes,
+reports), leave them out: `ModuleAnalysis.of(ClassScope.WITHOUT_TESTS, packages, new Exclusions(classes,
 uses))`, or `--exclude-class=<pattern>` and `--exclude-use=<pattern>` on the report's command line. In a pattern,
 `*` matches any characters except `.`, `**` any characters: for example `**$$*`, `**RepositoryImpl`. Find the
 patterns from the class names in the violations, and confirm with the user that these classes are generated.
