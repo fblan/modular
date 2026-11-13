@@ -24,14 +24,17 @@ import java.io.UncheckedIOException;
 import java.lang.module.ModuleFinder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.stream.IntStream;
 
 import org.asymetrik.modular.report.Finding.Kind;
 import org.asymetrik.modular.report.Finding.Level;
@@ -122,8 +125,8 @@ final class ReportPage {
 		}
 		outside();
 		out.append("<footer>Generated ").append(generated).append(" by modular, from the compiled classes. ")
-			.append("The report does not read the sources: sizes are counted in types, methods and class file ")
-			.append("bytes, and a use that only exists in source is not seen.</footer>\n");
+			.append("The report does not read the sources: lines of code are the lines that hold code, from the ")
+			.append("line numbers of the class files, and a use that only exists in source is not seen.</footer>\n");
 		out.append("</div>\n<script>\n").append(resource("report.js")).append("</script>\n</body>\n</html>\n");
 		return out.toString();
 	}
@@ -192,12 +195,14 @@ final class ReportPage {
 		}
 
 		int types = 0;
-		int methods = 0;
-		long bytes = 0;
+		int publicMethods = 0;
+		OptionalInt lines = OptionalInt.of(0);
 		for (ModuleDescription module : modules) {
 			types += module.types().size();
-			methods += methods(module);
-			bytes += bytes(module);
+			publicMethods += Findings.publicMethods(module);
+			OptionalInt moduleLines = Findings.linesOfCode(module);
+			lines = lines.isPresent() && moduleLines.isPresent()
+				? OptionalInt.of(lines.getAsInt() + moduleLines.getAsInt()) : OptionalInt.empty();
 		}
 		int toOutside = 0;
 		for (Dependency dependency : analysis.dependencies()) {
@@ -208,7 +213,8 @@ final class ReportPage {
 		out.append("<dl class=\"stats\">\n");
 		stat("Modules", modules.size(), virtualModules.isEmpty() ? "declared with @Module"
 			: "and " + count(virtualModules.size(), "virtual module"));
-		stat("Types", types, count(methods, "method") + ", " + Text.bytes(bytes) + " of class files");
+		stat("Types", types, count(publicMethods, "public method")
+			+ (lines.isPresent() ? ", " + count(lines.getAsInt(), "line") + " of code" : ""));
 		stat("Dependencies", graph.edges().size(), "between modules"
 			+ (toOutside > 0 ? ", and " + toOutside + " on what is outside" : ""));
 		stat("Findings", errors + warnings + hints, errors + warnings + hints == 0 ? "nothing to report"
@@ -320,14 +326,25 @@ final class ReportPage {
 	}
 
 	private void modules() {
-		out.append("<section id=\"modules\">\n<h2>Modules</h2>\n<div class=\"scroll\">\n<table class=\"overview\">\n")
+		List<Integer> order = moduleOrder();
+		out.append("<section id=\"modules\">\n<h2>Modules</h2>\n")
+			.append("<p class=\"note\">Sorted by their most serious finding, then by lines of code.</p>\n");
+		if (modules.size() > 1) {
+			out.append("<p class=\"filter js-only\" hidden><label for=\"module-filter\">Filter by name</label> ")
+				.append("<input type=\"search\" id=\"module-filter\" autocomplete=\"off\" spellcheck=\"false\"> ")
+				.append("<span id=\"module-filter-count\" aria-live=\"polite\"></span></p>\n");
+		}
+		out.append("<div class=\"scroll\">\n<table class=\"overview\">\n")
 			.append("<thead><tr><th scope=\"col\">Module</th><th scope=\"col\" class=\"num\">Types</th>")
 			.append("<th scope=\"col\" class=\"num\">Exported</th>")
-			.append("<th scope=\"col\" class=\"num\">Methods</th><th scope=\"col\" class=\"num\">Class files</th>")
+			.append("<th scope=\"col\" class=\"num\">Public methods</th>")
+			.append("<th scope=\"col\" class=\"num\">Lines of code</th>")
 			.append("<th scope=\"col\" class=\"num\">Uses</th><th scope=\"col\" class=\"num\">Used by</th>")
 			.append("</tr></thead>\n<tbody>\n");
-		for (ModuleDescription module : modules) {
-			out.append("<tr").append(levelClass(module.name(), " class=\"", "\"")).append("><th scope=\"row\">")
+		for (int index : order) {
+			ModuleDescription module = modules.get(index);
+			out.append("<tr").append(levelClass(module.name(), " class=\"", "\"")).append(" data-name=\"")
+				.append(escape(module.name())).append("\"><th scope=\"row\">")
 				.append(moduleLink(module.name()));
 			if (levelOf.containsKey(module.name())) {
 				out.append(" <span class=\"flag ").append(levelName(levelOf.get(module.name()))).append("\">")
@@ -336,24 +353,43 @@ final class ReportPage {
 			out.append("</th><td class=\"num\">")
 				.append(module.types().size()).append("</td><td class=\"num\">").append(exportedTypes(module))
 				.append("</td><td class=\"num\">")
-				.append(methods(module)).append("</td><td class=\"num\">").append(Text.bytes(bytes(module)))
+				.append(Findings.publicMethods(module)).append("</td><td class=\"num\">")
+				.append(orUnknown(Findings.linesOfCode(module)))
 				.append("</td><td class=\"num\">").append(dependenciesOf.getOrDefault(module.name(), List.of()).size())
 				.append("</td><td class=\"num\">").append(usersOf.getOrDefault(module.name(), List.of()).size())
 				.append("</td></tr>\n");
 		}
 		out.append("</tbody>\n</table>\n</div>\n<div class=\"modules\">\n");
-		for (int i = 0; i < modules.size(); i++) {
-			module(i);
+		for (int index : order) {
+			module(index);
 		}
 		out.append("</div>\n</section>\n");
+	}
+
+	/**
+	 * The indexes of the modules, by their most serious finding (none last), then by lines of code, the largest first
+	 * (unknown last, then by types), then by name.
+	 */
+	private List<Integer> moduleOrder() {
+		Comparator<Integer> byLevel = Comparator.comparingInt(index -> {
+			Level level = levelOf.get(modules.get(index).name());
+			return level == null ? Level.values().length : level.ordinal();
+		});
+		Comparator<Integer> byLines = Comparator.comparingInt(
+			index -> -Findings.linesOfCode(modules.get(index)).orElse(-1));
+		return IntStream.range(0, modules.size()).boxed()
+			.sorted(byLevel.thenComparing(byLines)
+				.thenComparingInt(index -> -modules.get(index).types().size())
+				.thenComparing(index -> modules.get(index).name()))
+			.toList();
 	}
 
 	private void module(int index) {
 		ModuleDescription module = modules.get(index);
 		List<Dependency> dependencies = dependenciesOf.getOrDefault(module.name(), List.of());
 		List<Dependency> users = usersOf.getOrDefault(module.name(), List.of());
-		out.append("<article class=\"module").append(levelClass(module.name(), " ", "")).append("\" id=\"module-")
-			.append(index + 1).append("\">\n<header><h3>").append(escape(module.name())).append("</h3>")
+		out.append("<article class=\"module").append(levelClass(module.name(), " ", "")).append("\" data-name=\"")
+			.append(escape(module.name())).append("\" id=\"module-").append(index + 1).append("\">\n<header><h3>").append(escape(module.name())).append("</h3>")
 			.append(code(module.packageName())).append("</header>\n<dl class=\"facts\">\n");
 
 		// Two modules with the same name share their findings
@@ -408,8 +444,10 @@ final class ReportPage {
 		}
 		int types = module.types().size();
 		out.append("</dd>\n<dt>Size</dt><dd>").append(count(types, "type")).append(", ")
-			.append(count(methods(module), "method")).append(", ").append(Text.bytes(bytes(module)))
-			.append(" of class files</dd>\n<dt>Exported</dt><dd>").append(exportedTypes(module)).append(" of ")
+			.append(count(Findings.publicMethods(module), "public method"))
+			.append(Findings.linesOfCode(module).isPresent()
+				? ", " + count(Findings.linesOfCode(module).getAsInt(), "line") + " of code" : "")
+			.append("</dd>\n<dt>Exported</dt><dd>").append(exportedTypes(module)).append(" of ")
 			.append(count(types, "type")).append(", ").append(types - exportedTypes(module))
 			.append(" internal</dd>\n</dl>\n");
 
@@ -454,14 +492,13 @@ final class ReportPage {
 		if (types > 0) {
 			out.append("<details class=\"types\"><summary>").append(count(types, "type")).append("</summary>\n")
 				.append("<div class=\"scroll\">\n<table>\n<thead><tr><th scope=\"col\">Type</th><th scope=\"col\">")
-				.append("Package</th><th scope=\"col\" class=\"num\">Methods</th><th scope=\"col\" class=\"num\">")
-				.append("Class files</th></tr></thead>\n<tbody>\n");
+				.append("Package</th><th scope=\"col\" class=\"num\">Public methods</th>")
+				.append("<th scope=\"col\" class=\"num\">Lines of code</th></tr></thead>\n<tbody>\n");
 			for (TypeDescription type : module.types()) {
 				out.append("<tr><th scope=\"row\">").append(code(relativeName(type.name(), module))).append("</th><td>")
 					.append(type.exported() ? "exported" : "<span class=\"kind\">internal</span>")
-					.append("</td><td class=\"num\">").append(type.methods()).append("</td><td class=\"num\">")
-					.append(type.classFileBytes().isPresent() ? Text.bytes(type.classFileBytes().getAsLong())
-						: "unknown").append("</td></tr>\n");
+					.append("</td><td class=\"num\">").append(type.publicMethods()).append("</td><td class=\"num\">")
+					.append(orUnknown(type.linesOfCode())).append("</td></tr>\n");
 			}
 			out.append("</tbody>\n</table>\n</div>\n</details>\n");
 		}
@@ -585,12 +622,8 @@ final class ReportPage {
 		return typeName.startsWith(prefix) ? typeName.substring(prefix.length()) : typeName;
 	}
 
-	private static int methods(ModuleDescription module) {
-		return module.types().stream().mapToInt(TypeDescription::methods).sum();
-	}
-
-	private static long bytes(ModuleDescription module) {
-		return module.types().stream().mapToLong(type -> type.classFileBytes().orElse(0)).sum();
+	private static String orUnknown(OptionalInt number) {
+		return number.isPresent() ? String.valueOf(number.getAsInt()) : "unknown";
 	}
 
 	private static int exportedTypes(ModuleDescription module) {

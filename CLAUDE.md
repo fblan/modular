@@ -169,8 +169,9 @@ Located in `verification/src/main/java/org/asymetrik/modular/verification/Module
   are not measured, analysed or unassigned (a nested class goes with its top-level class); excluded uses are no
   dependency and no violation. `exclusions()` returns them
 - `modules()`: name, package, exports, requires and top-level types (package, exported or not, methods, class file
-  bytes, whether it is an exception, whether it is a class of static helpers; nested classes count with their top-level
-  type, `package-info` is not a type)
+  bytes, whether it is an exception, whether it is a class of static helpers, public methods, lines of code and the
+  lines of each method with code, read from the class files' line numbers by `ClassFileLines`, a lambda counting with
+  the method that holds it; nested classes count with their top-level type, `package-info` is not a type)
 - `externalModules()`: the `@ExternalModule` declarations
 - `dependencies()`: one per (module, target), with the (consumer class, used class) pairs behind it, and whether the
   consumer creates instances of the used class (a constructor call; `super(...)` is not one). The target is a
@@ -190,11 +191,11 @@ Located in `report/src/main/java/org/asymetrik/modular/report/ModularReport.java
   (`[--exclude-class=<pattern>]... [--exclude-use=<pattern>]... <output directory> <package>...`), since it needs the
   class path of the application. With exclusions, the masthead says what was left out
 - `of(String...)` / `of(List)` leave test classes out; `of(ModuleAnalysis)` reports on any analysis
-- `findings()`: violations (`ERROR`), cycles, classes in no module and large modules (`WARNING`; large: at
-  least `Findings.LARGE_MODULE_MIN_TYPES` (20) types and more than `LARGE_MODULE_FACTOR` (3) times the median
-  module's class file bytes, given at least 3 modules), `requires` not seen in use and
+- `findings()`: violations (`ERROR`), cycles, classes in no module and large modules (`WARNING`; more than
+  `Findings.MAX_TYPES`, 50, types), `requires` not seen in use and
   exported packages not used (`HINT`, can be false alarms as only bytecode is read; never given for `java.base`), and
-  design hints (`HINT`): large types (more than `Findings.MAX_METHODS`, 35), leaky APIs (from 0.1.3, without the
+  design hints (`HINT`): large types (more than `Findings.MAX_PUBLIC_METHODS`, 20, public methods), large
+  methods (more than `Findings.MAX_LINES`, 75, lines of code), leaky APIs (from 0.1.3, without the
   uses that are only annotations: `ClassUse.annotationsOnly()`), borrowed
   exceptions and exported helpers. Each finding names the modules to look at (`Finding.modules()`): the page colors
   them by their most serious finding (diagram box, modules table, module section with links to the findings)
@@ -290,6 +291,12 @@ mvn test -pl verification
 
 - **Annotation Uses**: `src/main/doc/SPEC_20261112_0004_annotation_uses.md`
   - `ClassUse.annotationsOnly()`; leaky APIs leave out the uses that are only annotations
+
+- **Size Limits**: `src/main/doc/SPEC_20261113_0001_size_limits.md`
+  - Large modules in types, large types in public methods, large methods in lines of code; no more class file bytes
+
+- **Module Order and Filter**: `src/main/doc/SPEC_20261113_0002_module_order_and_filter.md`
+  - Modules sorted by most serious finding, then lines of code; a box filters them by name
 
 ## Key Files to Know
 - `README.md` - User documentation: setup, rules, requirements, errors and fixes. Keep it in sync with features

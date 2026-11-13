@@ -304,8 +304,11 @@ analysis.dependencies();       // what each module really uses, with the classes
 analysis.unassignedClasses();  // scanned classes that are in no module
 ```
 
-- **Types**: each top-level type has its package, whether that package is exported, its number of methods and the
-  size of its class files. Nested and anonymous classes are counted with their top-level type.
+- **Types**: each top-level type has its package, whether that package is exported, its number of methods and
+  public methods, the size of its class files, and its lines of code, with those of each of its methods. Lines of
+  code are the lines that hold code, read from the line numbers of the class files: comments and blank lines are not
+  counted, and a lambda counts with the method that holds it. Nested and anonymous classes are counted with their
+  top-level type.
 - **Dependencies**: one per module and target. The target is a module, a virtual module, a JPMS module, or an
   unmanaged package. A dependency is listed whether the rules allow it or not. Uses of `java.base` are left out;
   a use of another JDK module, such as `java.net.http`, is a dependency on that JPMS module. It breaks
@@ -391,9 +394,10 @@ java -cp <class path> org.asymetrik.modular.report.ModularReport \
   an arrow is wider when there are more uses. Select a module to highlight its arrows. A module with findings
   takes the color of the most serious one: red for an error, amber for a warning, blue for a hint.
 - **Dependency matrix**: the number of uses of each module by each other module.
-- **Modules**: for each module, its exports and requires, its size (types, methods, class file bytes), what it
+- **Modules**: for each module, its exports and requires, its size (types, public methods, lines of code), what it
   uses and who uses it, with the classes behind each dependency, and its types. A module with findings is
-  marked in the table, with their number, and its section lists them, linked to the Findings section.
+  marked in the table, with their number, and its section lists them, linked to the Findings section. The modules
+  come by their most serious finding, then by lines of code, the largest first, and a box filters them by name.
 - **Outside the modules**: the virtual modules, JPMS modules and unmanaged packages that the modules use.
 
 | Finding | Level | Meaning |
@@ -401,17 +405,18 @@ java -cp <class path> org.asymetrik.modular.report.ModularReport \
 | Violation | error | A module rule is broken: the same violations as `ModuleAnalysis.violations()`. |
 | Cycle | warning | Modules that use each other, directly or not. No rule forbids it, so only the report shows it. |
 | Classes in no module | warning | Scanned classes that are in no `@Module` and in no `@ExternalModule`. |
-| Large module | warning | A module with at least 20 types whose class files are more than 3 times the median module's (given at least 3 modules): it probably holds several parts of the domain. |
+| Large module | warning | A module with more than 50 types: it probably holds several parts of the domain. |
 | `requires` not seen in use | hint | A name in `requires` that the module's classes do not use. |
 | Exported package not used | hint | A package in `exports` that no other module uses. |
-| Large type | hint | A type with more than 35 methods, SonarQube's default limit: it probably does several jobs. |
+| Large type | hint | A type with more than 20 public methods: it probably does several jobs. |
+| Large method | hint | A method with more than 75 lines of code, SonarQube's default limit: it probably does several things. |
 | Leaky API | hint | A module uses exported types of another module that use a third one, and doesn't require that third one: it can't use what it receives without a new `requires`. From 0.1.3, a use that is only an annotation, such as `@Embeddable` on an exported type or an enum given as an annotation's value, doesn't count: the users of the type never have to know it. |
 | Borrowed exception | hint | A module creates exceptions of another module, so its errors depend on how that module handles them. Catching them is fine. |
 | Exported helper | hint | An exported class of static helpers (static members only, and no method returning a type of its own module, which would make it a factory) that another module uses: shared code that belongs to neither. |
 
 A hint can be a false alarm. The report reads bytecode: it does not see a constant that the compiler inlined or an
 annotation with source retention, and an exported package can be an entry point, or be used by reflection. A large
-type, an exported helper or a shared exception can also be a choice.
+type or method, an exported helper or a shared exception can also be a choice.
 
 The findings are also available in Java, for example to keep a code base free of cycles:
 

@@ -1,6 +1,6 @@
 package org.asymetrik.modular.report.sizeapp.large;
 
-/** The largest type of the module. */
+/** One of the 51 types of a module above the limit, with 3 public methods. */
 public class Part01 {
 	public int value() {
 		return 1;

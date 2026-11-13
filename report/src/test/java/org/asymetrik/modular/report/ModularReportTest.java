@@ -10,7 +10,10 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import javax.xml.parsers.DocumentBuilderFactory;
 
@@ -49,7 +52,8 @@ class ModularReportTest {
 	@Test
 	void every_module_has_its_section() {
 		assertThat(html)
-			.contains("<article class=\"module warning\" id=\"module-1\">\n<header><h3>billing</h3><code>" + TESTAPP
+			.contains("<article class=\"module warning\" data-name=\"billing\" id=\"module-1\">\n<header><h3>billing</h3><code>"
+				+ TESTAPP
 				+ ".billing</code>")
 			.contains("id=\"module-2\">\n<header><h3>catalog</h3>")
 			.contains("id=\"module-3\">\n<header><h3>" + ESCAPED_LEGACY + "</h3>")
@@ -120,7 +124,7 @@ class ModularReportTest {
 		assertThat(orders).contains("<li><a href=\"#module-2\"><code>catalog</code></a></li>")
 			.contains("<li><code>java.compiler</code> <span class=\"kind\">JPMS module</span> "
 				+ "<span class=\"flag\">not seen in use</span></li>")
-			.contains("<dt>Size</dt><dd>1 type, 2 methods, ")
+			.contains("<dt>Size</dt><dd>1 type, 2 public methods, 5 lines of code</dd>")
 			.contains("<li><code>" + TESTAPP + ".orders.Order</code> &rarr; <code>" + TESTAPP
 				+ ".catalog.Product</code></li>")
 			// Used by billing and by web
@@ -134,7 +138,7 @@ class ModularReportTest {
 			.contains("<dt>Exported</dt><dd>2 of 3 types, 1 internal</dd>")
 			.contains("<p class=\"none\">Nothing outside <code>java.*</code>.</p>")
 			.contains("<code>internal.ProductIndex</code></th><td><span class=\"kind\">internal</span></td>"
-				+ "<td class=\"num\">3</td>");
+				+ "<td class=\"num\">2</td><td class=\"num\">9</td>");
 		assertThat(section("module-3")).contains("<span class=\"flag error\">not required</span>")
 			.contains("<p class=\"none\">No other module.</p>");
 		assertThat(section("module-1")).contains("<code>money</code> <span class=\"kind\">virtual module</span>");
@@ -249,14 +253,15 @@ class ModularReportTest {
 	@Test
 	void a_module_with_findings_has_the_color_of_the_most_serious_one() {
 		// legacy breaks a rule, billing is in a cycle, catalog exports a package that no one uses
-		assertThat(html).contains("<article class=\"module error\" id=\"module-3\">")
-			.contains("<article class=\"module warning\" id=\"module-1\">")
-			.contains("<article class=\"module hint\" id=\"module-2\">");
+		assertThat(html).contains("<article class=\"module error\" data-name=\"" + ESCAPED_LEGACY + "\" id=\"module-3\">")
+			.contains("<article class=\"module warning\" data-name=\"billing\" id=\"module-1\">")
+			.contains("<article class=\"module hint\" data-name=\"catalog\" id=\"module-2\">");
 
 		// The modules table
-		assertThat(html).contains("<tr class=\"warning\"><th scope=\"row\"><a href=\"#module-1\"><code>billing</code>"
+		assertThat(html).contains("<tr class=\"warning\" data-name=\"billing\"><th scope=\"row\"><a href=\"#module-1\"><code>billing</code>"
 				+ "</a> <span class=\"flag warning\">1 warning, 2 hints</span></th>")
-			.contains("<tr class=\"error\"><th scope=\"row\"><a href=\"#module-3\"><code>" + ESCAPED_LEGACY
+			.contains("<tr class=\"error\" data-name=\"" + ESCAPED_LEGACY + "\"><th scope=\"row\"><a href=\"#module-3\"><code>"
+				+ ESCAPED_LEGACY
 				+ "</code></a> <span class=\"flag error\">1 error, 1 hint</span></th>");
 
 		// The diagram
@@ -275,7 +280,8 @@ class ModularReportTest {
 	@Test
 	void the_modules_table_gives_the_numbers_of_each_module() {
 		assertThat(html).contains("<thead><tr><th scope=\"col\">Module</th><th scope=\"col\" class=\"num\">Types</th>"
-				+ "<th scope=\"col\" class=\"num\">Exported</th><th scope=\"col\" class=\"num\">Methods</th>")
+				+ "<th scope=\"col\" class=\"num\">Exported</th><th scope=\"col\" class=\"num\">Public methods</th>"
+				+ "<th scope=\"col\" class=\"num\">Lines of code</th>")
 			// catalog: 3 types, 2 of them exported
 			.contains("<code>catalog</code></a> <span class=\"flag hint\">1 hint</span></th><td class=\"num\">3</td>"
 				+ "<td class=\"num\">2</td>")
@@ -288,6 +294,42 @@ class ModularReportTest {
 
 		assertThat(clean).doesNotContain("<ul class=\"about\">").doesNotContain("A box with findings")
 			.doesNotContain("<tr class=").doesNotContain("class=\"node ").doesNotContain("class=\"module ");
+	}
+
+	@Test
+	void modules_are_sorted_by_their_most_serious_finding_then_by_lines_of_code() {
+		String modulesSection = html.substring(html.indexOf("<section id=\"modules\">"));
+		String table = modulesSection.substring(0, modulesSection.indexOf("</table>"));
+		String sections = modulesSection.substring(modulesSection.indexOf("</table>"),
+			modulesSection.indexOf("</section>"));
+
+		// legacy has an error; billing and orders warnings; catalog and web hints
+		List<String> expected = List.of(ESCAPED_LEGACY, "billing", "orders", "catalog", "web");
+		assertThat(names(table, "<tr ")).isEqualTo(expected);
+		assertThat(names(sections, "<article ")).isEqualTo(expected);
+		// The ids stay those of the analysis order
+		assertThat(sections).contains("data-name=\"billing\" id=\"module-1\"");
+	}
+
+	@Test
+	void the_modules_can_be_filtered_by_name() {
+		assertThat(html).contains("<p class=\"filter js-only\" hidden><label for=\"module-filter\">Filter by name"
+				+ "</label> <input type=\"search\" id=\"module-filter\"")
+			.contains("<tr class=\"hint\" data-name=\"web\">");
+		// A single module needs no filter
+		assertThat(ModularReport.of(ModuleAnalysis.of("org.asymetrik.modular.report.jdkapp")).html())
+			.doesNotContain("id=\"module-filter\"");
+	}
+
+	/** The data-name attributes of the elements that start with this text, in order. */
+	private static List<String> names(String html, String start) {
+		List<String> names = new ArrayList<>();
+		Matcher matcher = Pattern.compile(Pattern.quote(start)
+			+ "[^>]*data-name=\"([^\"]*)\"").matcher(html);
+		while (matcher.find()) {
+			names.add(matcher.group(1));
+		}
+		return names;
 	}
 
 	private String section(String id) {

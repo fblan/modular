@@ -116,13 +116,17 @@ class FindingsTest {
 	}
 
 	@Test
-	void design_hints_point_at_large_types_leaky_apis_borrowed_exceptions_and_exported_helpers() {
+	void design_hints_point_at_large_types_large_methods_leaky_apis_borrowed_exceptions_and_exported_helpers() {
 		ModularReport design = ModularReport.of(ModuleAnalysis.of(DESIGNAPP));
 
-		// Medium has 35 methods; informed requires base and only catches CoreException. CoreException is @Audited, of
-		// marks, which client doesn't require: an annotation is no leak
+		// Medium has 20 public methods; Lengthy.atTheLimit has 75 lines of code; informed requires base and only
+		// catches CoreException. CoreException is @Audited, of marks, which client doesn't require: an annotation is
+		// no leak
 		assertThat(design.findings()).extracting(Finding::level, Finding::kind, Finding::title).containsExactly(
-			tuple(Level.HINT, Kind.LARGE_TYPE, "'" + DESIGNAPP + ".core.Big', in 'core', has 36 methods"),
+			tuple(Level.HINT, Kind.LARGE_TYPE,
+				"'" + DESIGNAPP + ".core.Big', in 'core', has 21 public methods, more than 20"),
+			tuple(Level.HINT, Kind.LARGE_METHOD,
+				"'" + DESIGNAPP + ".core.Lengthy.tooLong()', in 'core', has 76 lines of code, more than 75"),
 			tuple(Level.HINT, Kind.LEAKY_API,
 				"'client' uses exported types of 'core' that use 'base', without requiring 'base'"),
 			tuple(Level.HINT, Kind.BORROWED_EXCEPTION, "'client' creates exceptions of 'core'"),
@@ -134,9 +138,11 @@ class FindingsTest {
 	void a_design_hint_names_the_classes_behind_it_and_what_to_do() {
 		List<Finding> findings = ModularReport.of(ModuleAnalysis.of(DESIGNAPP)).findings();
 
-		assertThat(findings.get(0).details()).hasSize(2);
-		assertThat(findings.get(0).details().get(0)).matches("[0-9.]+ (B|kB) of class files, [0-9]+% of 'core'");
-		assertThat(findings.get(0).details().get(1)).startsWith("Above 35 methods");
+		assertThat(findings.get(0).details()).containsExactly(
+			"A type with many public methods usually does several jobs: split it by job.");
+		assertThat(findings.get(1).details()).containsExactly(
+			"A long method usually does several things: split it into methods that each do one.");
+		findings = findings.subList(1, findings.size());
 		assertThat(findings.get(1).details()).containsExactly(
 			DESIGNAPP + ".core.CoreView uses " + DESIGNAPP + ".base.BaseId",
 			DESIGNAPP + ".client.Client uses " + DESIGNAPP + ".core.CoreView",
@@ -151,28 +157,22 @@ class FindingsTest {
 	}
 
 	@Test
-	void a_module_much_larger_than_the_others_is_a_warning() {
+	void a_module_with_more_than_50_types_is_a_warning() {
 		List<Finding> findings = ModularReport.of(ModuleAnalysis.of("org.asymetrik.modular.report.sizeapp"))
 			.findings();
 
-		assertThat(findings).extracting(Finding::level, Finding::kind, Finding::modules)
-			.containsExactly(tuple(Level.WARNING, Kind.LARGE_MODULE, List.of("large")));
-		Finding large = findings.get(0);
-		assertThat(large.title()).matches("'large' has [0-9.]+ kB of class files, [0-9.]+ times the median module's "
-			+ "[0-9]+ B");
-		assertThat(large.details()).hasSize(5);
-		assertThat(large.details().get(0)).startsWith("20 types, ");
-		// The largest types first
-		assertThat(large.details().get(1)).startsWith("org.asymetrik.modular.report.sizeapp.large.Part01: ");
-		assertThat(large.details().get(4)).isEqualTo("A module much larger than the others usually holds several "
-			+ "parts of the domain: split it by part.");
-	}
-
-	@Test
-	void a_module_with_few_types_is_not_large_whatever_the_others() {
-		// catalog is more than 3 times the median module, but has 3 types
-		assertThat(report.findings()).extracting(Finding::kind).doesNotContain(Kind.LARGE_MODULE);
-		assertThat(Findings.LARGE_MODULE_MIN_TYPES).isEqualTo(20);
+		// limit has exactly 50 types
+		assertThat(findings).extracting(Finding::level, Finding::kind, Finding::title, Finding::modules)
+			.containsExactly(tuple(Level.WARNING, Kind.LARGE_MODULE, "'large' has 51 types, more than 50",
+				List.of("large")));
+		// Part01 has 3 public methods and 4 lines (its constructor's and one per method), Part02 to Part20 one public
+		// method and 2 lines each, Part21 to Part51 a constructor of one line each. The largest types first, then by name
+		String large = "org.asymetrik.modular.report.sizeapp.large.";
+		assertThat(findings.get(0).details()).containsExactly("22 public methods, 73 lines of code",
+			large + "Part01: 4 lines of code, 5% of 'large'",
+			large + "Part02: 2 lines of code, 3% of 'large'",
+			large + "Part03: 2 lines of code, 3% of 'large'",
+			"A module with many types usually holds several parts of the domain: split it by part.");
 	}
 
 	@Test

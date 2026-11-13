@@ -1,6 +1,6 @@
 package org.asymetrik.modular.report.designapp.base;
 
-/** Exactly at the limit: not a large type. */
+/** Exactly at the limit of public methods, with more that are not public: not a large type. */
 public class Medium {
 	public int m1() {
 		return 1;
@@ -82,63 +82,63 @@ public class Medium {
 		return 20;
 	}
 
-	public int m21() {
+	int m21() {
 		return 21;
 	}
 
-	public int m22() {
+	int m22() {
 		return 22;
 	}
 
-	public int m23() {
+	int m23() {
 		return 23;
 	}
 
-	public int m24() {
+	int m24() {
 		return 24;
 	}
 
-	public int m25() {
+	int m25() {
 		return 25;
 	}
 
-	public int m26() {
+	int m26() {
 		return 26;
 	}
 
-	public int m27() {
+	int m27() {
 		return 27;
 	}
 
-	public int m28() {
+	int m28() {
 		return 28;
 	}
 
-	public int m29() {
+	int m29() {
 		return 29;
 	}
 
-	public int m30() {
+	int m30() {
 		return 30;
 	}
 
-	public int m31() {
+	int m31() {
 		return 31;
 	}
 
-	public int m32() {
+	int m32() {
 		return 32;
 	}
 
-	public int m33() {
+	int m33() {
 		return 33;
 	}
 
-	public int m34() {
+	int m34() {
 		return 34;
 	}
 
-	public int m35() {
+	int m35() {
 		return 35;
 	}
 }
