@@ -4,7 +4,7 @@
     <parent>
         <groupId>org.asymetrik.modular</groupId>
         <artifactId>root</artifactId>
-        <version>0.1.5-SNAPSHOT</version>
+        <version>0.1.5</version>
     </parent>
     <artifactId>report</artifactId>
     <name>Modular Report</name>
