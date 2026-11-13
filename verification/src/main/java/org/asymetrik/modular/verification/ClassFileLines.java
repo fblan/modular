@@ -28,7 +28,8 @@ import java.util.Optional;
  * writes unless told not to ({@code -g:none}). Comments, blank lines and declarations without code are not in them.
  * <p>
  * The body of a lambda is a synthetic method of its own ({@code lambda$compute$0}): its lines are counted with the
- * method that holds the lambda.
+ * method that holds the lambda. A method with code but no line numbers, such as a constructor that a framework adds
+ * to the class, is left out: its lines are not known.
  *
  * @param lines the lines of the whole class file
  * @param methods its methods with code, with their lines, in the order of the class file
@@ -50,7 +51,8 @@ record ClassFileLines(BitSet lines, List<MethodLines> methods) {
 	private static final String LAMBDA = "lambda$";
 
 	/**
-	 * Reads a class file. Empty when it is not one, or when it has code but no line numbers.
+	 * Reads a class file. Empty when it is not one, or when none of its methods with code has line numbers: it was
+	 * compiled without them.
 	 */
 	static Optional<ClassFileLines> of(byte[] classFile) {
 		try {
@@ -79,6 +81,7 @@ record ClassFileLines(BitSet lines, List<MethodLines> methods) {
 		}
 		List<RawMethod> raw = new ArrayList<>();
 		boolean withoutLineNumbers = false;
+		boolean withLineNumbers = false;
 		int methods = in.readUnsignedShort();
 		for (int i = 0; i < methods; i++) {
 			int flags = in.readUnsignedShort();
@@ -96,11 +99,13 @@ record ClassFileLines(BitSet lines, List<MethodLines> methods) {
 				if (lines.isEmpty()) {
 					withoutLineNumbers = true;
 				} else {
+					withLineNumbers = true;
 					raw.add(new RawMethod(name, descriptor, (flags & ACC_SYNTHETIC) != 0, lines.get()));
 				}
 			}
 		}
-		if (withoutLineNumbers) {
+		// Compiled without line numbers; a method that a framework added is only left out
+		if (withoutLineNumbers && !withLineNumbers) {
 			return Optional.empty();
 		}
 		return Optional.of(withLambdas(raw));
