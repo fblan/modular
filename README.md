@@ -307,8 +307,9 @@ analysis.unassignedClasses();  // scanned classes that are in no module
 - **Types**: each top-level type has its package, whether that package is exported, its number of methods and
   public methods, the size of its class files, and its lines of code, with those of each of its methods. Lines of
   code are the lines that hold code, read from the line numbers of the class files: comments and blank lines are not
-  counted, and a lambda counts with the method that holds it. Nested and anonymous classes are counted with their
-  top-level type.
+  counted, and a lambda counts with the method that holds it. A method without line numbers, such as one that a
+  framework adds, is left out; a class compiled without line numbers (`-g:none`) has unknown lines. Nested and
+  anonymous classes are counted with their top-level type.
 - **Dependencies**: one per module and target. The target is a module, a virtual module, a JPMS module, or an
   unmanaged package. A dependency is listed whether the rules allow it or not. Uses of `java.base` are left out;
   a use of another JDK module, such as `java.net.http`, is a dependency on that JPMS module. It breaks

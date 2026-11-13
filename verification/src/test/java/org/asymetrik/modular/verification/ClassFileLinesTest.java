@@ -11,6 +11,13 @@ import java.util.Optional;
 import javax.tools.JavaCompiler;
 import javax.tools.ToolProvider;
 
+import com.tngtech.archunit.thirdparty.org.objectweb.asm.ClassReader;
+import com.tngtech.archunit.thirdparty.org.objectweb.asm.ClassVisitor;
+import com.tngtech.archunit.thirdparty.org.objectweb.asm.ClassWriter;
+import com.tngtech.archunit.thirdparty.org.objectweb.asm.Label;
+import com.tngtech.archunit.thirdparty.org.objectweb.asm.MethodVisitor;
+import com.tngtech.archunit.thirdparty.org.objectweb.asm.Opcodes;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -63,6 +70,22 @@ class ClassFileLinesTest {
 	}
 
 	@Test
+	void a_method_without_line_numbers_is_left_out_and_the_others_counted() throws IOException {
+		// As a framework adds a constructor to a bean class: here, the line numbers of twice(String) are removed
+		byte[] generated = withoutLineNumbers(compile("-g"), "twice", "(Ljava/lang/String;)I");
+
+		ClassFileLines lines = ClassFileLines.of(generated).orElseThrow();
+
+		// Line 14 was the only line of twice(String)
+		assertThat(lines.lines().cardinality()).isEqualTo(6);
+		assertThat(lines.methods()).extracting(ClassFileLines.MethodLines::name,
+				ClassFileLines.MethodLines::descriptor, method -> method.lines().cardinality())
+			.containsExactly(
+				tuple("<init>", "()V", 1),
+				tuple("twice", "(I)I", 5));
+	}
+
+	@Test
 	void a_class_without_code_has_no_line() throws IOException {
 		compile("-g");
 		ClassFileLines empty = ClassFileLines.of(Files.readAllBytes(directory.resolve("Sample$Empty.class")))
@@ -83,6 +106,32 @@ class ClassFileLinesTest {
 		assertThat(ClassFileLines.parameters("()V")).isEqualTo("()");
 		assertThat(ClassFileLines.parameters("(Ljava/util/List;[IZ[[Ljava/util/Map$Entry;J)V"))
 			.isEqualTo("(List, int[], boolean, Map.Entry[][], long)");
+	}
+
+	/**
+	 * The class file without the line numbers of one method. The ASM is the one ArchUnit shades: this test stops
+	 * compiling if an upgrade moves it.
+	 */
+	private static byte[] withoutLineNumbers(byte[] classFile, String name, String descriptor) {
+		ClassReader reader = new ClassReader(classFile);
+		ClassWriter writer = new ClassWriter(0);
+		reader.accept(new ClassVisitor(Opcodes.ASM9, writer) {
+			@Override
+			public MethodVisitor visitMethod(int access, String methodName, String methodDescriptor, String signature,
+											 String[] exceptions) {
+				MethodVisitor method = super.visitMethod(access, methodName, methodDescriptor, signature, exceptions);
+				if (!methodName.equals(name) || !methodDescriptor.equals(descriptor)) {
+					return method;
+				}
+				return new MethodVisitor(Opcodes.ASM9, method) {
+					@Override
+					public void visitLineNumber(int line, Label start) {
+						// Left out
+					}
+				};
+			}
+		}, 0);
+		return writer.toByteArray();
 	}
 
 	private byte[] compile(String debug) throws IOException {
