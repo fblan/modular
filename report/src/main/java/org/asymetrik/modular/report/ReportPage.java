@@ -24,6 +24,7 @@ import java.io.UncheckedIOException;
 import java.lang.module.ModuleFinder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashSet;
@@ -33,6 +34,7 @@ import java.util.OptionalInt;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.stream.IntStream;
 
 import org.asymetrik.modular.report.Finding.Kind;
 import org.asymetrik.modular.report.Finding.Level;
@@ -324,15 +326,25 @@ final class ReportPage {
 	}
 
 	private void modules() {
-		out.append("<section id=\"modules\">\n<h2>Modules</h2>\n<div class=\"scroll\">\n<table class=\"overview\">\n")
+		List<Integer> order = moduleOrder();
+		out.append("<section id=\"modules\">\n<h2>Modules</h2>\n")
+			.append("<p class=\"note\">Sorted by their most serious finding, then by lines of code.</p>\n");
+		if (modules.size() > 1) {
+			out.append("<p class=\"filter js-only\" hidden><label for=\"module-filter\">Filter by name</label> ")
+				.append("<input type=\"search\" id=\"module-filter\" autocomplete=\"off\" spellcheck=\"false\"> ")
+				.append("<span id=\"module-filter-count\" aria-live=\"polite\"></span></p>\n");
+		}
+		out.append("<div class=\"scroll\">\n<table class=\"overview\">\n")
 			.append("<thead><tr><th scope=\"col\">Module</th><th scope=\"col\" class=\"num\">Types</th>")
 			.append("<th scope=\"col\" class=\"num\">Exported</th>")
 			.append("<th scope=\"col\" class=\"num\">Public methods</th>")
 			.append("<th scope=\"col\" class=\"num\">Lines of code</th>")
 			.append("<th scope=\"col\" class=\"num\">Uses</th><th scope=\"col\" class=\"num\">Used by</th>")
 			.append("</tr></thead>\n<tbody>\n");
-		for (ModuleDescription module : modules) {
-			out.append("<tr").append(levelClass(module.name(), " class=\"", "\"")).append("><th scope=\"row\">")
+		for (int index : order) {
+			ModuleDescription module = modules.get(index);
+			out.append("<tr").append(levelClass(module.name(), " class=\"", "\"")).append(" data-name=\"")
+				.append(escape(module.name())).append("\"><th scope=\"row\">")
 				.append(moduleLink(module.name()));
 			if (levelOf.containsKey(module.name())) {
 				out.append(" <span class=\"flag ").append(levelName(levelOf.get(module.name()))).append("\">")
@@ -348,18 +360,36 @@ final class ReportPage {
 				.append("</td></tr>\n");
 		}
 		out.append("</tbody>\n</table>\n</div>\n<div class=\"modules\">\n");
-		for (int i = 0; i < modules.size(); i++) {
-			module(i);
+		for (int index : order) {
+			module(index);
 		}
 		out.append("</div>\n</section>\n");
+	}
+
+	/**
+	 * The indexes of the modules, by their most serious finding (none last), then by lines of code, the largest first
+	 * (unknown last, then by types), then by name.
+	 */
+	private List<Integer> moduleOrder() {
+		Comparator<Integer> byLevel = Comparator.comparingInt(index -> {
+			Level level = levelOf.get(modules.get(index).name());
+			return level == null ? Level.values().length : level.ordinal();
+		});
+		Comparator<Integer> byLines = Comparator.comparingInt(
+			index -> -Findings.linesOfCode(modules.get(index)).orElse(-1));
+		return IntStream.range(0, modules.size()).boxed()
+			.sorted(byLevel.thenComparing(byLines)
+				.thenComparingInt(index -> -modules.get(index).types().size())
+				.thenComparing(index -> modules.get(index).name()))
+			.toList();
 	}
 
 	private void module(int index) {
 		ModuleDescription module = modules.get(index);
 		List<Dependency> dependencies = dependenciesOf.getOrDefault(module.name(), List.of());
 		List<Dependency> users = usersOf.getOrDefault(module.name(), List.of());
-		out.append("<article class=\"module").append(levelClass(module.name(), " ", "")).append("\" id=\"module-")
-			.append(index + 1).append("\">\n<header><h3>").append(escape(module.name())).append("</h3>")
+		out.append("<article class=\"module").append(levelClass(module.name(), " ", "")).append("\" data-name=\"")
+			.append(escape(module.name())).append("\" id=\"module-").append(index + 1).append("\">\n<header><h3>").append(escape(module.name())).append("</h3>")
 			.append(code(module.packageName())).append("</header>\n<dl class=\"facts\">\n");
 
 		// Two modules with the same name share their findings

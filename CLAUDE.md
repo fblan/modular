@@ -295,6 +295,9 @@ mvn test -pl verification
 - **Size Limits**: `src/main/doc/SPEC_20261113_0001_size_limits.md`
   - Large modules in types, large types in public methods, large methods in lines of code; no more class file bytes
 
+- **Module Order and Filter**: `src/main/doc/SPEC_20261113_0002_module_order_and_filter.md`
+  - Modules sorted by most serious finding, then lines of code; a box filters them by name
+
 ## Key Files to Know
 - `README.md` - User documentation: setup, rules, requirements, errors and fixes. Keep it in sync with features
 - `.claude-plugin/marketplace.json` - Claude Code marketplace `asymetrik`, listing the `modular` plugin

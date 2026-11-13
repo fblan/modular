@@ -74,3 +74,35 @@
 		element.hidden = false;
 	});
 })();
+
+// Filters the modules table and the module sections by name. The page is complete without it.
+(function () {
+	var input = document.getElementById('module-filter');
+	var counter = document.getElementById('module-filter-count');
+	if (!input || !counter) {
+		return;
+	}
+	var section = document.getElementById('modules');
+	var rows = Array.prototype.slice.call(section.querySelectorAll('tr[data-name]'));
+	var articles = Array.prototype.slice.call(section.querySelectorAll('article[data-name]'));
+
+	function filter() {
+		var text = input.value.trim().toLowerCase();
+		var shown = 0;
+		rows.forEach(function (row) {
+			var match = row.getAttribute('data-name').toLowerCase().indexOf(text) !== -1;
+			row.hidden = !match;
+			if (match) {
+				shown++;
+			}
+		});
+		articles.forEach(function (article) {
+			article.hidden = article.getAttribute('data-name').toLowerCase().indexOf(text) === -1;
+		});
+		counter.textContent = text === '' ? '' : shown === 0 ? 'No module matches'
+			: shown + ' of ' + rows.length + ' modules';
+	}
+
+	input.addEventListener('input', filter);
+	input.closest('.filter').hidden = false;
+})();

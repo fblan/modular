@@ -396,7 +396,8 @@ java -cp <class path> org.asymetrik.modular.report.ModularReport \
 - **Dependency matrix**: the number of uses of each module by each other module.
 - **Modules**: for each module, its exports and requires, its size (types, public methods, lines of code), what it
   uses and who uses it, with the classes behind each dependency, and its types. A module with findings is
-  marked in the table, with their number, and its section lists them, linked to the Findings section.
+  marked in the table, with their number, and its section lists them, linked to the Findings section. The modules
+  come by their most serious finding, then by lines of code, the largest first, and a box filters them by name.
 - **Outside the modules**: the virtual modules, JPMS modules and unmanaged packages that the modules use.
 
 | Finding | Level | Meaning |
