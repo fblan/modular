@@ -166,8 +166,12 @@ class FindingsTest {
 			.containsExactly(tuple(Level.WARNING, Kind.LARGE_MODULE, "'large' has 51 types, more than 50",
 				List.of("large")));
 		// Part01 has 3 public methods and 4 lines (its constructor's and one per method), Part02 to Part20 one public
-		// method and 2 lines each, Part21 to Part51 a constructor of one line each
+		// method and 2 lines each, Part21 to Part51 a constructor of one line each. The largest types first, then by name
+		String large = "org.asymetrik.modular.report.sizeapp.large.";
 		assertThat(findings.get(0).details()).containsExactly("22 public methods, 73 lines of code",
+			large + "Part01: 4 lines of code, 5% of 'large'",
+			large + "Part02: 2 lines of code, 3% of 'large'",
+			large + "Part03: 2 lines of code, 3% of 'large'",
 			"A module with many types usually holds several parts of the domain: split it by part.");
 	}
 

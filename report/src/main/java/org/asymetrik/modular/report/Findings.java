@@ -16,6 +16,7 @@
 package org.asymetrik.modular.report;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -53,6 +54,8 @@ final class Findings {
 	static final int MAX_PUBLIC_METHODS = 20;
 	/** Above this many lines of code, a method is a {@link Kind#LARGE_METHOD}: SonarQube's default (rule S138). */
 	static final int MAX_LINES = 75;
+	/** The largest types that the details of a {@link Kind#LARGE_MODULE} name. */
+	private static final int LARGEST_TYPES_SHOWN = 3;
 
 	private final List<Finding> all = new ArrayList<>();
 	private final Map<Integer, Set<String>> requiresNotUsed = new TreeMap<>();
@@ -127,6 +130,18 @@ final class Findings {
 				size += ", " + Text.count(lines.getAsInt(), "line") + " of code";
 			}
 			details.add(size);
+			module.types().stream()
+				.filter(type -> type.linesOfCode().isPresent())
+				.sorted(Comparator.comparingInt((TypeDescription type) -> type.linesOfCode().getAsInt()).reversed()
+					.thenComparing(TypeDescription::name))
+				.limit(LARGEST_TYPES_SHOWN)
+				.forEach(type -> {
+					int typeLines = type.linesOfCode().getAsInt();
+					details.add(type.name() + ": " + Text.count(typeLines, "line") + " of code"
+						+ (lines.isPresent() && lines.getAsInt() > 0
+							? ", " + Math.round(100.0 * typeLines / lines.getAsInt()) + "% of '" + module.name() + "'"
+							: ""));
+				});
 			details.add("A module with many types usually holds several parts of the domain: split it by part.");
 			all.add(new Finding(Level.WARNING, Kind.LARGE_MODULE, "'" + module.name() + "' has "
 				+ Text.count(module.types().size(), "type") + ", more than " + MAX_TYPES, details,

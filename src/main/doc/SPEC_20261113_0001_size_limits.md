@@ -24,7 +24,8 @@ long method, the most common size problem, was not reported.
 ### Business Rules
 1. **Large module** (warning): a module with more than 50 types (top-level; nested, local and anonymous classes count
    with their top-level type). The limit is the same whatever the other modules. Its details give its public methods
-   and lines of code, and a suggestion.
+   and lines of code, its 3 largest types in lines of code (by name among equals) with their share of the module's
+   lines, and a suggestion.
 2. **Large type** (hint): a type with more than 20 public methods. Constructors and the methods the compiler adds
    are not counted, nor the methods of its nested classes. Its details give a suggestion.
 3. **Large method** (hint): a method, constructor or static initializer with more than 75 lines of code (SonarQube's
