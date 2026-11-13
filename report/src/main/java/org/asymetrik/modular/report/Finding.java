@@ -46,17 +46,16 @@ public record Finding(Level level, Kind kind, String title, List<String> details
 		CYCLE,
 		/** Scanned classes that are in no module. */
 		CLASSES_OUTSIDE_MODULES,
-		/**
-		 * A module whose class files are more than {@link Findings#LARGE_MODULE_FACTOR} times the median module's, with
-		 * at least {@link Findings#LARGE_MODULE_MIN_TYPES} types: it probably holds several parts of the domain.
-		 */
+		/** A module with more types than {@link Findings#MAX_TYPES}: it probably holds several parts of the domain. */
 		LARGE_MODULE,
 		/** A name in {@code requires} that the module's bytecode does not use. */
 		REQUIRES_NOT_USED,
 		/** An exported package that no other module uses. */
 		EXPORT_NOT_USED,
-		/** A type with more methods than {@link Findings#MAX_METHODS}: it probably does several jobs. */
+		/** A type with more public methods than {@link Findings#MAX_PUBLIC_METHODS}: it probably does several jobs. */
 		LARGE_TYPE,
+		/** A method with more lines of code than {@link Findings#MAX_LINES}: it probably does several things. */
+		LARGE_METHOD,
 		/**
 		 * Exported types that use another module, given to a module that does not require it: it cannot use what it
 		 * receives without a new {@code requires}. A use only in annotations does not count.

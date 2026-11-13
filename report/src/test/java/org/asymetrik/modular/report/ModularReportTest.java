@@ -120,7 +120,7 @@ class ModularReportTest {
 		assertThat(orders).contains("<li><a href=\"#module-2\"><code>catalog</code></a></li>")
 			.contains("<li><code>java.compiler</code> <span class=\"kind\">JPMS module</span> "
 				+ "<span class=\"flag\">not seen in use</span></li>")
-			.contains("<dt>Size</dt><dd>1 type, 2 methods, ")
+			.contains("<dt>Size</dt><dd>1 type, 2 public methods, 5 lines of code</dd>")
 			.contains("<li><code>" + TESTAPP + ".orders.Order</code> &rarr; <code>" + TESTAPP
 				+ ".catalog.Product</code></li>")
 			// Used by billing and by web
@@ -134,7 +134,7 @@ class ModularReportTest {
 			.contains("<dt>Exported</dt><dd>2 of 3 types, 1 internal</dd>")
 			.contains("<p class=\"none\">Nothing outside <code>java.*</code>.</p>")
 			.contains("<code>internal.ProductIndex</code></th><td><span class=\"kind\">internal</span></td>"
-				+ "<td class=\"num\">3</td>");
+				+ "<td class=\"num\">2</td><td class=\"num\">9</td>");
 		assertThat(section("module-3")).contains("<span class=\"flag error\">not required</span>")
 			.contains("<p class=\"none\">No other module.</p>");
 		assertThat(section("module-1")).contains("<code>money</code> <span class=\"kind\">virtual module</span>");
@@ -275,7 +275,8 @@ class ModularReportTest {
 	@Test
 	void the_modules_table_gives_the_numbers_of_each_module() {
 		assertThat(html).contains("<thead><tr><th scope=\"col\">Module</th><th scope=\"col\" class=\"num\">Types</th>"
-				+ "<th scope=\"col\" class=\"num\">Exported</th><th scope=\"col\" class=\"num\">Methods</th>")
+				+ "<th scope=\"col\" class=\"num\">Exported</th><th scope=\"col\" class=\"num\">Public methods</th>"
+				+ "<th scope=\"col\" class=\"num\">Lines of code</th>")
 			// catalog: 3 types, 2 of them exported
 			.contains("<code>catalog</code></a> <span class=\"flag hint\">1 hint</span></th><td class=\"num\">3</td>"
 				+ "<td class=\"num\">2</td>")

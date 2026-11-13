@@ -16,12 +16,12 @@
 package org.asymetrik.modular.report;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
@@ -38,6 +38,7 @@ import org.asymetrik.modular.verification.ModularVerifier.UnmanagedDependencyVio
 import org.asymetrik.modular.verification.ModuleAnalysis;
 import org.asymetrik.modular.verification.ModuleAnalysis.ClassUse;
 import org.asymetrik.modular.verification.ModuleAnalysis.Dependency;
+import org.asymetrik.modular.verification.ModuleAnalysis.MethodDescription;
 import org.asymetrik.modular.verification.ModuleAnalysis.ModuleDescription;
 import org.asymetrik.modular.verification.ModuleAnalysis.Target;
 import org.asymetrik.modular.verification.ModuleAnalysis.TargetKind;
@@ -46,16 +47,12 @@ import org.asymetrik.modular.verification.ModuleAnalysis.TypeDescription;
 /** Works out the findings of a report. */
 final class Findings {
 
-	/** Above this many methods, a type is a {@link Kind#LARGE_TYPE}: SonarQube's default for too many methods. */
-	static final int MAX_METHODS = 35;
-	/** A module with class files more than this many times the median module's is a {@link Kind#LARGE_MODULE}. */
-	static final int LARGE_MODULE_FACTOR = 3;
-	/** Below this many modules, the median says nothing, so no module is a {@link Kind#LARGE_MODULE}. */
-	static final int LARGE_MODULE_MIN_MODULES = 3;
-	/** A module with fewer types is small whatever the others, so it is not a {@link Kind#LARGE_MODULE}. */
-	static final int LARGE_MODULE_MIN_TYPES = 20;
-	/** The largest types that the details of a {@link Kind#LARGE_MODULE} name. */
-	private static final int LARGEST_TYPES_SHOWN = 3;
+	/** Above this many types, a module is a {@link Kind#LARGE_MODULE}. */
+	static final int MAX_TYPES = 50;
+	/** Above this many public methods, a type is a {@link Kind#LARGE_TYPE}. */
+	static final int MAX_PUBLIC_METHODS = 20;
+	/** Above this many lines of code, a method is a {@link Kind#LARGE_METHOD}: SonarQube's default (rule S138). */
+	static final int MAX_LINES = 75;
 
 	private final List<Finding> all = new ArrayList<>();
 	private final Map<Integer, Set<String>> requiresNotUsed = new TreeMap<>();
@@ -87,6 +84,7 @@ final class Findings {
 		findRequiresNotUsed(analysis);
 		findExportsNotUsed(analysis);
 		findLargeTypes(analysis);
+		findLargeMethods(analysis);
 		findLeakyApis(analysis);
 		findBorrowedExceptions(analysis);
 		findExportedHelpers(analysis);
@@ -118,43 +116,39 @@ final class Findings {
 	}
 
 	private void findLargeModules(ModuleAnalysis analysis) {
-		List<ModuleDescription> modules = analysis.modules();
-		if (modules.size() < LARGE_MODULE_MIN_MODULES) {
-			return;
-		}
-		long[] sizes = modules.stream().mapToLong(Findings::bytes).sorted().toArray();
-		int middle = sizes.length / 2;
-		double median = sizes.length % 2 == 1 ? sizes[middle] : (sizes[middle - 1] + sizes[middle]) / 2.0;
-		// No class file could be read
-		if (median <= 0) {
-			return;
-		}
-		for (ModuleDescription module : modules) {
-			long size = bytes(module);
-			if (size <= LARGE_MODULE_FACTOR * median || module.types().size() < LARGE_MODULE_MIN_TYPES) {
+		for (ModuleDescription module : analysis.modules()) {
+			if (module.types().size() <= MAX_TYPES) {
 				continue;
 			}
 			List<String> details = new ArrayList<>();
-			details.add(Text.count(module.types().size(), "type") + ", "
-				+ Text.count(module.types().stream().mapToInt(TypeDescription::methods).sum(), "method"));
-			module.types().stream()
-				.filter(type -> type.classFileBytes().isPresent())
-				.sorted(Comparator.comparingLong((TypeDescription type) -> type.classFileBytes().getAsLong())
-					.reversed())
-				.limit(LARGEST_TYPES_SHOWN)
-				.forEach(type -> details.add(type.name() + ": " + Text.bytes(type.classFileBytes().getAsLong())
-					+ ", " + Math.round(100.0 * type.classFileBytes().getAsLong() / size) + "% of '" + module.name()
-					+ "'"));
-			details.add("A module much larger than the others usually holds several parts of the domain: split it "
-				+ "by part.");
+			String size = Text.count(publicMethods(module), "public method");
+			OptionalInt lines = linesOfCode(module);
+			if (lines.isPresent()) {
+				size += ", " + Text.count(lines.getAsInt(), "line") + " of code";
+			}
+			details.add(size);
+			details.add("A module with many types usually holds several parts of the domain: split it by part.");
 			all.add(new Finding(Level.WARNING, Kind.LARGE_MODULE, "'" + module.name() + "' has "
-				+ Text.bytes(size) + " of class files, " + Text.number(size / median)
-				+ " times the median module's " + Text.bytes(Math.round(median)), details, List.of(module.name())));
+				+ Text.count(module.types().size(), "type") + ", more than " + MAX_TYPES, details,
+				List.of(module.name())));
 		}
 	}
 
-	private static long bytes(ModuleDescription module) {
-		return module.types().stream().mapToLong(type -> type.classFileBytes().orElse(0)).sum();
+	/** The public methods of a module's types. */
+	static int publicMethods(ModuleDescription module) {
+		return module.types().stream().mapToInt(TypeDescription::publicMethods).sum();
+	}
+
+	/** The lines of code of a module, empty when those of one of its types are not known. */
+	static OptionalInt linesOfCode(ModuleDescription module) {
+		int lines = 0;
+		for (TypeDescription type : module.types()) {
+			if (type.linesOfCode().isEmpty()) {
+				return OptionalInt.empty();
+			}
+			lines += type.linesOfCode().getAsInt();
+		}
+		return OptionalInt.of(lines);
 	}
 
 	/** The names that the module at this index of {@link ModuleAnalysis#modules()} requires without using them. */
@@ -234,17 +228,32 @@ final class Findings {
 
 	private void findLargeTypes(ModuleAnalysis analysis) {
 		for (ModuleDescription module : analysis.modules()) {
-			long moduleBytes = bytes(module);
 			for (TypeDescription type : module.types()) {
-				if (type.methods() <= MAX_METHODS) {
+				if (type.publicMethods() <= MAX_PUBLIC_METHODS) {
 					continue;
 				}
-				List<String> details = new ArrayList<>();
-				type.classFileBytes().ifPresent(bytes -> details.add(Text.bytes(bytes) + " of class files, "
-					+ Math.round(100.0 * bytes / moduleBytes) + "% of '" + module.name() + "'"));
-				details.add("Above " + MAX_METHODS + " methods, a type usually does several jobs: split it by job.");
 				all.add(new Finding(Level.HINT, Kind.LARGE_TYPE, "'" + type.name() + "', in '" + module.name()
-					+ "', has " + Text.count(type.methods(), "method"), details, List.of(module.name())));
+					+ "', has " + Text.count(type.publicMethods(), "public method") + ", more than " + MAX_PUBLIC_METHODS,
+					List.of("A type with many public methods usually does several jobs: split it by job."),
+					List.of(module.name())));
+			}
+		}
+	}
+
+	private void findLargeMethods(ModuleAnalysis analysis) {
+		for (ModuleDescription module : analysis.modules()) {
+			for (TypeDescription type : module.types()) {
+				for (MethodDescription method : type.methodsWithCode()) {
+					if (method.linesOfCode() <= MAX_LINES) {
+						continue;
+					}
+					String name = type.packageName().isEmpty() ? method.name()
+						: type.packageName() + "." + method.name();
+					all.add(new Finding(Level.HINT, Kind.LARGE_METHOD, "'" + name + "', in '" + module.name()
+						+ "', has " + method.linesOfCode() + " lines of code, more than " + MAX_LINES,
+						List.of("A long method usually does several things: split it into methods that each do one."),
+						List.of(module.name())));
+				}
 			}
 		}
 	}

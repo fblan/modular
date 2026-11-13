@@ -9,6 +9,7 @@ import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
 
 import org.asymetrik.modular.verification.ModuleAnalysis.ClassScope;
@@ -16,6 +17,7 @@ import org.asymetrik.modular.verification.ModuleAnalysis.ClassUse;
 import org.asymetrik.modular.verification.ModuleAnalysis.Dependency;
 import org.asymetrik.modular.verification.ModuleAnalysis.Exclusions;
 import org.asymetrik.modular.verification.ModuleAnalysis.ExternalModuleDescription;
+import org.asymetrik.modular.verification.ModuleAnalysis.MethodDescription;
 import org.asymetrik.modular.verification.ModuleAnalysis.ModuleDescription;
 import org.asymetrik.modular.verification.ModuleAnalysis.Target;
 import org.asymetrik.modular.verification.ModuleAnalysis.TargetKind;
@@ -78,6 +80,23 @@ class ModuleAnalysisTest {
 		Path indexClass = Path.of(ProductIndex.class.getResource("ProductIndex.class").toURI());
 		Path entryClass = indexClass.resolveSibling("ProductIndex$Entry.class");
 		assertThat(index.classFileBytes()).isEqualTo(OptionalLong.of(Files.size(indexClass) + Files.size(entryClass)));
+	}
+
+	@Test
+	void a_type_has_public_methods_and_lines_of_code() {
+		TypeDescription index = ModuleAnalysis.of(SHOP).modules().get(1).types().get(1);
+
+		// Entry.matches is not a method of ProductIndex itself
+		assertThat(index.publicMethods()).isEqualTo(2);
+		// The lines that hold code: 6 (the implicit constructor), 7, 10, 14, 15 (the return of add), 21, 22, 23 and 26
+		assertThat(index.linesOfCode()).isEqualTo(OptionalInt.of(9));
+		// The lambda of contains is counted with it, on its line
+		assertThat(index.methodsWithCode()).containsExactly(
+			new MethodDescription("ProductIndex.<init>()", 2),
+			new MethodDescription("ProductIndex.contains(String)", 1),
+			new MethodDescription("ProductIndex.add(String)", 2),
+			new MethodDescription("ProductIndex.Entry.<init>(String)", 3),
+			new MethodDescription("ProductIndex.Entry.matches(String)", 1));
 	}
 
 	@Test
@@ -320,6 +339,9 @@ class ModuleAnalysisTest {
 	void the_shorter_constructors_mean_no_trait_and_no_instance_created() {
 		assertThat(new TypeDescription("a.B", "a", true, 1, OptionalLong.empty()))
 			.isEqualTo(new TypeDescription("a.B", "a", true, 1, OptionalLong.empty(), false, false));
+		assertThat(new TypeDescription("a.B", "a", true, 1, OptionalLong.empty(), true, false))
+			.isEqualTo(new TypeDescription("a.B", "a", true, 1, OptionalLong.empty(), true, false, 0,
+				OptionalInt.empty(), List.of()));
 		assertThat(new ClassUse("a.B", "c.D")).isEqualTo(new ClassUse("a.B", "c.D", false));
 		assertThat(new ClassUse("a.B", "c.D", true)).isEqualTo(new ClassUse("a.B", "c.D", true, false));
 	}

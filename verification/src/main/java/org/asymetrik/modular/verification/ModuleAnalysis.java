@@ -17,7 +17,6 @@ package org.asymetrik.modular.verification;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.lang.module.FindException;
 import java.lang.module.ModuleFinder;
 import java.lang.module.ModuleReference;
@@ -28,6 +27,7 @@ import java.nio.file.Path;
 import java.security.CodeSource;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.BitSet;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -36,6 +36,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.TreeMap;
@@ -181,9 +182,39 @@ public final class ModuleAnalysis {
 	 *                     with at least one method, every method and field static, every constructor private, and
 	 *                     no method returning a type of its module (or an array of one), which would make it a
 	 *                     factory. Its nested classes are not looked at.
+	 * @param publicMethods the public methods of the type itself, without the constructors and the ones the compiler
+	 *                      adds; its nested classes are not looked at
+	 * @param linesOfCode the source lines that hold code, from the line numbers of its class files: comments, blank
+	 *                    lines and declarations without code are not counted. Empty when a class file cannot be
+	 *                    read, or was compiled without line numbers
+	 * @param methodsWithCode its methods, constructors and static initializers that have code, with their lines, and
+	 *                        those of their nested classes; empty when {@code linesOfCode} is
 	 */
 	public record TypeDescription(String name, String packageName, boolean exported, int methods,
-								  OptionalLong classFileBytes, boolean exception, boolean staticHelper) {
+								  OptionalLong classFileBytes, boolean exception, boolean staticHelper,
+								  int publicMethods, OptionalInt linesOfCode, List<MethodDescription> methodsWithCode) {
+
+		/** Copies the methods, so that a description cannot change. */
+		public TypeDescription {
+			methodsWithCode = List.copyOf(methodsWithCode);
+		}
+
+		/**
+		 * A type whose public methods and lines are not known.
+		 *
+		 * @param name its fully qualified name
+		 * @param packageName its package
+		 * @param exported whether the module exports that package
+		 * @param methods its methods, without the constructors and the ones the compiler adds
+		 * @param classFileBytes the size of its class files, empty when they cannot be read
+		 * @param exception whether it is a {@link Throwable}
+		 * @param staticHelper whether it is a class of static helpers
+		 */
+		public TypeDescription(String name, String packageName, boolean exported, int methods,
+							   OptionalLong classFileBytes, boolean exception, boolean staticHelper) {
+			this(name, packageName, exported, methods, classFileBytes, exception, staticHelper, 0, OptionalInt.empty(),
+				List.of());
+		}
 
 		/**
 		 * A type that is neither an exception nor a class of static helpers.
@@ -199,6 +230,16 @@ public final class ModuleAnalysis {
 			this(name, packageName, exported, methods, classFileBytes, false, false);
 		}
 	}
+
+	/**
+	 * A method, constructor or static initializer with code.
+	 *
+	 * @param name its class, without the package, then its name and parameter types: {@code Order.total(List, int)},
+	 *             {@code Order.Line.<init>(String)} for a constructor of a nested class, {@code Order.<clinit>()}
+	 *             for a static initializer
+	 * @param linesOfCode the source lines that hold its code, and the code of its lambdas
+	 */
+	public record MethodDescription(String name, int linesOfCode) {}
 
 	/**
 	 * A module declared with {@link Module}.
@@ -313,6 +354,10 @@ public final class ModuleAnalysis {
 		private int methods;
 		private long bytes;
 		private boolean bytesKnown;
+		private int publicMethods;
+		private final BitSet lines = new BitSet();
+		private final List<MethodDescription> methodsWithCode = new ArrayList<>();
+		private boolean linesUnknown;
 		private boolean exception;
 		private boolean staticHelper;
 
@@ -747,13 +792,31 @@ public final class ModuleAnalysis {
 		size.methods += (int) clazz.getMethods().stream()
 			.filter(method -> !method.getModifiers().contains(JavaModifier.SYNTHETIC))
 			.count();
-		classFileBytes(clazz).ifPresent(bytes -> {
-			size.bytes += bytes;
+		Optional<byte[]> classFile = classFile(clazz);
+		classFile.ifPresent(content -> {
+			size.bytes += content.length;
 			size.bytesKnown = true;
 		});
+		Optional<ClassFileLines> lines = classFile.flatMap(ClassFileLines::of);
+		if (lines.isEmpty()) {
+			size.linesUnknown = true;
+		} else {
+			size.lines.or(lines.get().lines());
+			// Order.Line, Order$1: the class without its package
+			String className = clazz.getName().substring(clazz.getPackageName().isEmpty() ? 0
+				: clazz.getPackageName().length() + 1).replaceAll("\\$(?=[^0-9])", ".");
+			for (ClassFileLines.MethodLines method : lines.get().methods()) {
+				size.methodsWithCode.add(new MethodDescription(className + "." + method.name()
+					+ ClassFileLines.parameters(method.descriptor()), method.lines().cardinality()));
+			}
+		}
 		if (clazz.getEnclosingClass().isEmpty()) {
 			size.exception = clazz.isAssignableTo(Throwable.class);
 			size.staticHelper = isStaticHelper(clazz, module);
+			size.publicMethods = (int) clazz.getMethods().stream()
+				.filter(method -> method.getModifiers().contains(JavaModifier.PUBLIC)
+					&& !method.getModifiers().contains(JavaModifier.SYNTHETIC))
+				.count();
 		}
 	}
 
@@ -785,27 +848,30 @@ public final class ModuleAnalysis {
 				type.getValue().methods,
 				type.getValue().bytesKnown ? OptionalLong.of(type.getValue().bytes) : OptionalLong.empty(),
 				type.getValue().exception,
-				type.getValue().staticHelper))
+				type.getValue().staticHelper,
+				type.getValue().publicMethods,
+				type.getValue().linesUnknown ? OptionalInt.empty() : OptionalInt.of(type.getValue().lines.cardinality()),
+				type.getValue().linesUnknown ? List.of() : type.getValue().methodsWithCode))
 			.toList();
 		return new ModuleDescription(module.name(), module.packageName(), List.of(module.exports()),
 			List.of(module.requires()), described);
 	}
 
-	private static OptionalLong classFileBytes(JavaClass clazz) {
+	private static Optional<byte[]> classFile(JavaClass clazz) {
 		Optional<URI> location = clazz.getSource().map(source -> source.getUri());
 		if (location.isEmpty()) {
-			return OptionalLong.empty();
+			return Optional.empty();
 		}
 		try {
 			if ("file".equals(location.get().getScheme())) {
-				return OptionalLong.of(Files.size(Path.of(location.get())));
+				return Optional.of(Files.readAllBytes(Path.of(location.get())));
 			}
-			// A class in a jar: its size is what its entry holds
+			// A class in a jar: what its entry holds
 			try (InputStream content = location.get().toURL().openStream()) {
-				return OptionalLong.of(content.transferTo(OutputStream.nullOutputStream()));
+				return Optional.of(content.readAllBytes());
 			}
 		} catch (IOException | IllegalArgumentException | SecurityException unreadable) {
-			return OptionalLong.empty();
+			return Optional.empty();
 		}
 	}
 

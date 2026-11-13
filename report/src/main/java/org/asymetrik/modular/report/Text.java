@@ -69,15 +69,4 @@ final class Text {
 		}
 		return text.equals("-0") ? "0" : text;
 	}
-
-	/** "812 B", "4.2 kB", "1.3 MB". */
-	static String bytes(long bytes) {
-		if (bytes < 1000) {
-			return bytes + " B";
-		}
-		if (bytes < 1_000_000) {
-			return String.format(Locale.ROOT, "%.1f kB", bytes / 1000.0);
-		}
-		return String.format(Locale.ROOT, "%.1f MB", bytes / 1_000_000.0);
-	}
 }
